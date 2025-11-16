@@ -1,0 +1,29 @@
+{
+  "name": "@ellyco/agentic",
+  "version": "0.1.0",
+  "description": "Simple AI Agent Library",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "test": "vitest",
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "Elina Auramveil",
+  "license": "MIT",
+  "peerDependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.929.0",
+    "zod": "^4.1.12"
+  },
+  "dependencies": {
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "dotenv": "^17.2.3",
+    "vitest": "^4.0.9"
+  }
+}
