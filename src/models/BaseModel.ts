@@ -7,12 +7,7 @@ import {
     ToolRequest,
     ToolUse,
 } from "../messages";
-
-export interface ToolDefinition {
-    name: string;
-    description?: string;
-    schema: z.ZodObject<any>;
-}
+import { ToolDefinition } from "../tools";
 
 export interface BaseModelConfig {
     temperature?: number;
@@ -59,7 +54,7 @@ export abstract class BaseModel {
     protected topP?: number;
     protected maxTokens?: number;
 
-    protected systemMessage?: MessageContent;
+    protected systemMessage?: SystemMessage;
     protected tools: ToolDefinition[] = [];
     protected structuredOutput?: z.ZodSchema<any>;
 
@@ -76,9 +71,11 @@ export abstract class BaseModel {
     }
 
     withSystemMessage(message: SystemMessage | MessageContent): this {
-        this.systemMessage = message instanceof SystemMessage
-            ? message.content
-            : message;
+        if (message instanceof SystemMessage) {
+            this.systemMessage = message;
+        } else {
+            this.systemMessage = new SystemMessage(message);
+        }
         return this;
     }
 
@@ -98,9 +95,24 @@ export abstract class BaseModel {
         return new StructuredOutputWrapper<T>(this);
     }
 
-    abstract invoke(
+    protected abstract runModel(
         messages: (BaseMessage | ToolUse)[],
     ): Promise<InvokeResponse>;
+
+    async invoke(
+        messages: (BaseMessage | ToolUse)[],
+        properties?: Record<string, any>,
+    ): Promise<InvokeResponse> {
+        if (!properties) {
+            return this.runModel(messages);
+        }
+        return this.runModel(messages.map((message) => {
+            if (message instanceof BaseMessage) {
+                message.interpolate(properties);
+            }
+            return message;
+        }));
+    }
 }
 
 export class ResponseNotStructuredOutputError extends Error {
@@ -123,8 +135,11 @@ export class StructuredOutputWrapper<T> {
         return this;
     }
 
-    async invoke(messages: (BaseMessage | ToolUse)[]): Promise<T> {
-        const response = await this.model.invoke(messages);
+    async invoke(
+        messages: (BaseMessage | ToolUse)[],
+        properties?: Record<string, any>,
+    ): Promise<T> {
+        const response = await this.model.invoke(messages, properties);
         if (!response.messages.length) {
             throw new ResponseNotStructuredOutputError();
         }

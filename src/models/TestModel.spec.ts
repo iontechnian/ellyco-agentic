@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { TestModel, TestResponseConfig } from "./TestModel";
 import { AgentMessage, ToolRequest, UserMessage } from "../messages";
-import { InvokeResponseType, ToolDefinition } from "./BaseModel";
+import { InvokeResponseType } from "./BaseModel";
+import { ToolDefinition } from "../tools";
 import * as z from "zod";
 
 describe("TestModel", () => {
@@ -49,6 +50,29 @@ describe("TestModel", () => {
         expect(response.messages).toStrictEqual([{
             type: InvokeResponseType.TOOL_REQUEST,
             request: toolRequest,
+        }]);
+    });
+
+    it("handles input with interpolation", async () => {
+        const model = new TestModel({});
+        const userMessage = new UserMessage("What is the weather in {city}?");
+        const expectedUserMessage = new UserMessage(
+            "What is the weather in London?",
+        );
+        const expectedToolRequest = new ToolRequest("1", "get_weather", {
+            city: "London",
+        });
+        model.addTestConfig(
+            new TestResponseConfig().userSends([expectedUserMessage])
+                .respondWith([{
+                    type: InvokeResponseType.TOOL_REQUEST,
+                    request: expectedToolRequest,
+                }]),
+        );
+        const response = await model.invoke([userMessage], { city: "London" });
+        expect(response.messages).toStrictEqual([{
+            type: InvokeResponseType.TOOL_REQUEST,
+            request: expectedToolRequest,
         }]);
     });
 });

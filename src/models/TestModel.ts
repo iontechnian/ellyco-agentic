@@ -1,4 +1,5 @@
 import { BaseMessage, ToolUse } from "../messages";
+import { ToolDefinition } from "../tools";
 import {
     BaseModel,
     BaseModelConfig,
@@ -6,7 +7,6 @@ import {
     InvokeResponseAgentMessage,
     InvokeResponseStopReason,
     InvokeResponseToolRequest,
-    ToolDefinition,
 } from "./BaseModel";
 import * as z from "zod";
 
@@ -91,7 +91,9 @@ export class TestModel extends BaseModel {
         return undefined;
     }
 
-    invoke(messages: (BaseMessage | ToolUse)[]): Promise<InvokeResponse> {
+    protected runModel(
+        messages: (BaseMessage | ToolUse)[],
+    ): Promise<InvokeResponse> {
         const matchingConfig = this.findMatchingConfig(messages);
         if (!matchingConfig) {
             throw new Error("No matching test config found");

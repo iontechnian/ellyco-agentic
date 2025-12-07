@@ -6,8 +6,8 @@ import {
     InvokeResponseAgentMessage,
     InvokeResponseToolRequest,
     InvokeResponseType,
-    ToolDefinition,
 } from "./BaseModel";
+import { ToolDefinition } from "../tools";
 import * as z from "zod";
 
 dotenv.config({ path: ".env.test" });
@@ -26,8 +26,8 @@ const createModel = (modelId: string) =>
         },
     });
 
-describe("BedrockModel", () => {
-    it.skip("should response with an AgentMessage", async () => {
+describe.skip("BedrockModel", () => {
+    it("should response with an AgentMessage", async () => {
         const model = createModel("amazon.nova-micro-v1:0");
         const userMessage = new UserMessage("Hello, how are you?");
         const response = await model.invoke([userMessage]);
@@ -41,7 +41,7 @@ describe("BedrockModel", () => {
         );
     });
 
-    it.skip("should call a tool", async () => {
+    it("should call a tool", async () => {
         const model = createModel("amazon.nova-micro-v1:0");
         const userMessage = new UserMessage("What is the weather in Tokyo?");
         const tool: ToolDefinition = {
@@ -64,7 +64,7 @@ describe("BedrockModel", () => {
         console.log(toolRequest);
     });
 
-    it.skip("should respond with a structured output", async () => {
+    it("should respond with a structured output", async () => {
         const model = createModel("amazon.nova-micro-v1:0");
         const userMessage = new UserMessage("I want to visit Tokyo and Osaka");
         const response = await model.withStructuredOutput(

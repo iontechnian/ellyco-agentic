@@ -7,11 +7,11 @@ import {
     InvokeResponseToolRequest,
     InvokeResponseType,
     InvokeResponseUsage,
-    ToolDefinition,
 } from "./BaseModel";
 import {
     BedrockRuntimeClient,
     BedrockRuntimeClientConfig,
+    ContentBlock,
     ConversationRole,
     ConverseCommand,
     ConverseCommandOutput,
@@ -33,6 +33,7 @@ import {
     ToolUse,
 } from "../messages";
 import * as z from "zod";
+import { ToolDefinition } from "../tools";
 
 export type BedrockModelConfig = BaseModelConfig & {
     modelId: string;
@@ -57,7 +58,7 @@ export class BedrockModel extends BaseModel {
             if (message instanceof BaseMessage) {
                 const role = message.role;
                 if (role === MessageRole.SYSTEM && !this.systemMessage) {
-                    this.systemMessage = message.content;
+                    this.systemMessage = message;
                 } else {
                     bedrockMessages.push({
                         role: role === MessageRole.USER
@@ -65,7 +66,9 @@ export class BedrockModel extends BaseModel {
                             : ConversationRole.ASSISTANT,
                         content: [
                             {
-                                text: message.content.toString(),
+                                ...(message.hasText()
+                                    ? { text: message.text }
+                                    : {}) as ContentBlock,
                             },
                         ],
                     });
@@ -237,7 +240,7 @@ export class BedrockModel extends BaseModel {
         return {};
     }
 
-    async invoke(
+    protected async runModel(
         inputMessages: (BaseMessage | ToolUse)[],
     ): Promise<InvokeResponse> {
         const bedrockMessages = this.convertMessagesToBedrockMessages(
@@ -274,15 +277,15 @@ export class BedrockModel extends BaseModel {
             if ("text" in block) {
                 messages.push({
                     type: InvokeResponseType.AGENT_MESSAGE,
-                    message: new AgentMessage(block.text),
+                    message: new AgentMessage(block.text!),
                 });
             } else if ("toolUse" in block) {
                 messages.push({
                     type: InvokeResponseType.TOOL_REQUEST,
                     request: new ToolRequest(
-                        block.toolUse.toolUseId!,
-                        block.toolUse.name!,
-                        block.toolUse.input as object,
+                        block.toolUse!.toolUseId!,
+                        block.toolUse!.name!,
+                        block.toolUse!.input as object,
                     ),
                 });
             } else {

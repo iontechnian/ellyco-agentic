@@ -1,5 +1,5 @@
 export interface MessageContentObject {
-    content: string;
+    text?: string;
 }
 
 export type MessageContent = string | MessageContentObject;
@@ -11,22 +11,50 @@ export enum MessageRole {
 }
 
 export abstract class BaseMessage {
-    constructor(
-        public readonly role: MessageRole,
-        public readonly content: MessageContent,
-    ) {}
+    private _textContent?: string;
 
-    public toString(): string {
-        return typeof this.content === "string"
-            ? this.content
-            : this.content.content;
+    public get text(): string | undefined {
+        return this._textContent;
     }
 
-    public toJSON(): { role: MessageRole; content: MessageContent } {
+    constructor(
+        public readonly role: MessageRole,
+        content: MessageContent,
+    ) {
+        if (typeof content === "string") {
+            this._textContent = content;
+        } else {
+            this._textContent = content.text;
+        }
+    }
+
+    public interpolate(properties: Record<string, any>): this {
+        if (this._textContent) {
+            this._textContent = this._textContent.replace(
+                /\{\s*(\w+)\s*\}/g,
+                (match, p1) => {
+                    const value = properties[p1];
+                    if (value === undefined) {
+                        throw new Error(`Property ${p1} is not defined`);
+                    }
+                    return value;
+                },
+            );
+        }
+        return this;
+    }
+
+    public toJSON(): { role: MessageRole; content: MessageContentObject } {
         return {
             role: this.role,
-            content: this.content,
+            content: {
+                text: this._textContent,
+            },
         };
+    }
+
+    public hasText(): boolean {
+        return this._textContent !== undefined;
     }
 }
 
