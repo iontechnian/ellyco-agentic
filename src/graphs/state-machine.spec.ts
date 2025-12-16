@@ -17,7 +17,7 @@ describe("StateMachine", () => {
             .addEdge(START, "test")
             .addEdge("test", END);
 
-        const result = await stateMachine.run({ count: 0 }, {});
+        const result = await stateMachine.invoke({ count: 0 });
         expect(result).toEqual({ state: { count: 1 }, exitReason: "end" });
     });
 
@@ -42,7 +42,7 @@ describe("StateMachine", () => {
                 .addEdge("nodeA", END)
                 .addEdge("nodeB", END);
 
-            const result = await stateMachine.run({ count: 0 }, {});
+            const result = await stateMachine.invoke({ count: 0 });
             expect(result).toEqual({
                 state: { count: targetCount },
                 exitReason: "end",
@@ -77,17 +77,18 @@ describe("StateMachine", () => {
         });
 
         it("should interrupt when the interrupt node is reached", async () => {
-            const result = await stateMachine.run({ count: 0 }, {});
+            const result = await stateMachine.invoke({ count: 0 });
             expect(result).toEqual({
                 state: { count: 2 },
                 exitReason: "interrupt",
-                cursor: ["interrupt"],
+                cursor: "interrupt",
+                exitMessage: "",
             });
         });
 
         it("should resume when the resumeFrom is provided", async () => {
-            const result = await stateMachine.run({ count: 0 }, {
-                resumeFrom: ["interrupt"],
+            const result = await stateMachine.invoke({ count: 0 }, {
+                resumeFrom: "interrupt",
             });
             expect(result).toEqual({ state: { count: 1 }, exitReason: "end" });
         });
@@ -110,7 +111,7 @@ describe("StateMachine", () => {
                 .addEdge(START, "subgraph")
                 .addEdge("subgraph", END);
 
-            const result = await stateMachine.run({ count: 0 }, {});
+            const result = await stateMachine.invoke({ count: 0 });
             expect(result).toEqual({ state: { count: 1 }, exitReason: "end" });
         });
 
@@ -134,18 +135,19 @@ describe("StateMachine", () => {
                 .addEdge(START, "subgraph")
                 .addEdge("subgraph", END);
 
-            it.only("should interrupt when the interrupt node is reached", async () => {
-                const result = await stateMachine.run({ count: 0 }, {});
+            it("should interrupt when the interrupt node is reached", async () => {
+                const result = await stateMachine.invoke({ count: 0 });
                 expect(result).toEqual({
                     state: { count: 1 },
                     exitReason: "interrupt",
-                    cursor: ["subgraph", "interrupt"],
+                    exitMessage: "",
+                    cursor: "subgraph.interrupt",
                 });
             });
 
             it("should resume when the resumeFrom is provided", async () => {
-                const result = await stateMachine.run({ count: 0 }, {
-                    resumeFrom: ["subgraph", "interrupt"],
+                const result = await stateMachine.invoke({ count: 0 }, {
+                    resumeFrom: "subgraph.interrupt",
                 });
                 expect(result).toEqual({
                     state: { count: 1 },

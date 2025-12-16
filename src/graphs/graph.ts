@@ -1,90 +1,69 @@
-import { type NodeLike, RunConfig } from "../nodes/types";
+import { type NodeLike } from "../nodes/types";
 import { type GraphResult } from "./types";
+import { ContextLayer, RuntimeContext } from "./runtime-context";
 
 export const START = "start";
 export const END = "end";
 
+export interface RunConfig {
+    resumeFrom?: string;
+}
+
 export abstract class Graph<
     S extends object,
-    IO extends object = S,
     NS extends object = S,
-> implements NodeLike<IO, GraphResult<IO>> {
+> implements NodeLike<S> {
     public readonly isGraph = true;
 
     protected nodes: Record<string, NodeLike<NS>> = {};
     protected edges: Record<string, string> = {};
     protected conditionalEdges: Record<string, string[]> = {};
-    protected conditionalFuncs: Record<string, (state: S) => string> = {};
-    protected state: S = {} as S;
-    protected config: RunConfig = {};
-    protected cursor: string = "";
+    protected conditionalFuncs: Record<string, (state: NS, context: ContextLayer) => string> = {};
 
-    protected transition(): void {
-        if (this.cursor in this.edges) {
-            this.cursor = this.edges[this.cursor]!;
-        } else if (this.cursor in this.conditionalEdges) {
-            const conditionalEdges = this.conditionalEdges[this.cursor]!;
-            const condition = this.conditionalFuncs[this.cursor]!(
-                this.state,
+    protected abstract stateToNodeState(state: S, context: ContextLayer): NS;
+    protected abstract nodeStateToState(nodeState: Partial<NS>, context: ContextLayer): S;
+
+    protected transition(state: S, context: ContextLayer): void {
+        const currentNode = context.currentNode!;
+        if (currentNode in this.edges) {
+            context.currentNode = this.edges[currentNode]!;
+        } else if (currentNode in this.conditionalEdges) {
+            const conditionalEdges = this.conditionalEdges[currentNode]!;
+            const condition = this.conditionalFuncs[currentNode]!(
+                this.stateToNodeState(state, context),
+                context,
             );
             if (conditionalEdges.includes(condition)) {
-                this.cursor = condition;
+                context.currentNode = condition;
             } else {
                 throw new Error(
-                    `No edge found for after node ${this.cursor} with condition ${condition}`,
+                    `No edge found for after node ${currentNode} with condition ${condition}`,
                 );
             }
         } else {
             throw new Error(
-                `No edge or conditional edge found for after node ${this.cursor}`,
+                `No edge or conditional edge found for after node ${currentNode}`,
             );
         }
     }
 
-    protected async step(): Promise<void> {
-        const node = this.nodes[this.cursor]!;
+    protected async step(state: S, context: ContextLayer): Promise<S> {
+        const currentNode = context.currentNode!;
+        const node = this.nodes[currentNode]!;
         if (node === undefined) {
-            throw new Error(`Node ${this.cursor} not found`);
+            throw new Error(`Node ${currentNode} not found`);
         }
-        const inputNodeState = this.stateToNodeState(this.state);
+        const inputNodeState = this.stateToNodeState(state, context);
         const result = await node.run(
             { ...inputNodeState },
-            this.config,
+            context,
         );
-        this.state = {
-            ...this.state,
-            ...this.nodeStateToState(result),
-        };
-    }
-
-    /**
-     * Can be overriden.
-     * Runs when interrupting. The returned array is the cursor stack for this graph, which gets prepended to the resumeFrom.
-     */
-    protected setInterruptCursor(): string[] {
-        return [this.cursor];
-    }
-
-    protected markInterrupt(): void {
-        const interruptCursor = this.setInterruptCursor();
-        this.config.resumeFrom = [
-            ...interruptCursor,
-            ...(this.config.resumeFrom ?? []),
-        ];
-    }
-
-    /**
-     * Can be overriden.
-     * Runs when resuming from an interrupt. Is intended for setting up the graph before resuming from an interrupt.
-     * The returned object is the cursor to resume from and the rest of the resumeFrom to propagate further in.
-     */
-    protected recoverFromInterrupt(): {
-        cursor: string;
-        remainingResumeFrom: string[];
-    } {
+        if (Object.keys(result).length === 0) {
+            return state;
+        }
         return {
-            cursor: this.config.resumeFrom![0]!,
-            remainingResumeFrom: this.config.resumeFrom!.slice(1),
+            ...state,
+            ...this.nodeStateToState(result, context),
         };
     }
 
@@ -112,51 +91,62 @@ export abstract class Graph<
         }
     }
 
-    protected abstract ioToState(io: IO): S;
-    protected abstract stateToIo(state: S): Partial<IO>;
-    protected abstract stateToNodeState(state: S): NS;
-    protected abstract nodeStateToState(nodeState: Partial<NS>): S;
-
-    async run(input: IO, config: RunConfig = {}): Promise<GraphResult<IO>> {
-        this.state = this.ioToState(input);
-        this.config = config;
-        if (this.config.resumeFrom) {
-            const { cursor, remainingResumeFrom } = this.recoverFromInterrupt();
-            this.cursor = cursor;
-            this.config.resumeFrom = remainingResumeFrom;
-        } else {
-            this.cursor = START;
-        }
+    protected async runInternal(input: S, context: ContextLayer): Promise<Partial<S>> {
+        let state = { ...input };
         let shouldContinue = true;
         while (shouldContinue) {
+            const currentNode = context.currentNode!;
             // End is not a real node, it's just a way to stop the state machine.
-            if (this.cursor === END) {
+            if (currentNode === END) {
                 shouldContinue = false;
                 break;
             }
             // Start is not a real node, it's just a way to start the state machine.
-            if (this.cursor === START) {
-                this.transition();
+            if (currentNode === START) {
+                this.transition(input, context);
                 continue;
             }
 
-            await this.step();
+            state = { ...state, ...(await this.step(state, context)) };
 
-            if (this.config.shouldInterrupt) {
+            if (context.runtime.interrupted) {
                 shouldContinue = false;
-                this.markInterrupt();
                 break;
             }
 
-            this.transition();
+            this.transition(state, context);
         }
 
+        return state;
+    }
+
+    async run(input: S, contextOrRuntime: ContextLayer | RuntimeContext): Promise<Partial<S>> {
+        const context = contextOrRuntime.nextLayer();
+        if (context.currentNode === undefined) {
+            context.currentNode = START;
+        }
+        const result = await this.runInternal(input, context);
+        context.done();
+        return result;
+    }
+
+    async invoke(input: S, config?: RunConfig): Promise<GraphResult<S>> {
+        const runtime = new RuntimeContext();
+        if (config?.resumeFrom) {
+            runtime.unwrapCursor(config.resumeFrom);
+        }
+        const result = await this.run(input, runtime);
+        if (runtime.interrupted) {
+            return {
+                state: { ...input, ...result },
+                exitReason: "interrupt",
+                exitMessage: runtime.exitMessage,
+                cursor: runtime.wrapCursor(),
+            };
+        }
         return {
-            state: this.stateToIo(this.state),
-            exitReason: this.config.shouldInterrupt ? "interrupt" : "end",
-            ...(this.config.shouldInterrupt
-                ? { cursor: this.config.resumeFrom }
-                : {}),
+            state: { ...input, ...result },
+            exitReason: "end",
         };
     }
 }

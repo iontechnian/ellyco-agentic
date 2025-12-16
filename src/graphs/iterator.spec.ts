@@ -25,9 +25,8 @@ describe("Iterator", () => {
             (state) => state.inputs,
             timesTwo,
         );
-        const result = await iterator.run(
+        const result = await iterator.invoke(
             { inputs: [1, 2, 3] },
-            {},
         );
         expect(result).toEqual({
             state: { inputs: [2, 4, 6] },
@@ -45,9 +44,8 @@ describe("Iterator", () => {
             (state) => state.inputs,
             nodeSequence,
         );
-        const result = await iterator.run(
+        const result = await iterator.invoke(
             { inputs: [1, 2, 3] },
-            {},
         );
         expect(result).toEqual({
             state: { inputs: [3, 5, 7] },
@@ -68,28 +66,29 @@ describe("Iterator", () => {
             nodeSequence,
         );
         it("should interrupt when the iterator is interrupted", async () => {
-            const result = await iterator.run(
+            const result = await iterator.invoke(
                 { inputs: [1, 2] },
-                {},
             );
             expect(result).toEqual({
                 state: { inputs: [2, 2] },
                 exitReason: "interrupt",
-                cursor: ["0", "iterator-loop", "node-1"],
+                exitMessage: "",
+                cursor: "0.iterator-loop.node-1",
             });
         });
 
         it.only("should resume when the resumeFrom is provided", async () => {
-            const result = await iterator.run(
+            const result = await iterator.invoke(
                 { inputs: [1, 2] },
                 {
-                    resumeFrom: ["0", "iterator-loop", "node-1"],
+                    resumeFrom: "0.iterator-loop.node-1",
                 },
             );
             expect(result).toEqual({
                 state: { inputs: [2, 4] },
                 exitReason: "interrupt",
-                cursor: ["1", "iterator-loop", "node-1"],
+                exitMessage: "",
+                cursor: "1.iterator-loop.node-1",
             });
         });
     });

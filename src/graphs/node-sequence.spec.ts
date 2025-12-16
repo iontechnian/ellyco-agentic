@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { NodeSequence } from "./node-sequence";
 import { makeNode } from "../nodes/function-node";
 import { InterruptNode } from "../nodes/interrupt-node";
-import { NestedGraph } from "../nodes";
 import { END, START } from "./graph";
 import { StateMachine } from "./state-machine";
 
@@ -17,7 +16,7 @@ describe("NodeSequence", () => {
             .next(addOne)
             .next(addOne);
 
-        const result = await nodeSequence.run({ count: 0 }, {});
+        const result = await nodeSequence.invoke({ count: 0 });
         expect(result).toEqual({ state: { count: 3 }, exitReason: "end" });
     });
 
@@ -29,17 +28,18 @@ describe("NodeSequence", () => {
             .next(addOne);
 
         it("should interrupt when the interrupt node is reached", async () => {
-            const result = await nodeSequence.run({ count: 0 }, {});
+            const result = await nodeSequence.invoke({ count: 0 });
             expect(result).toEqual({
                 state: { count: 1 },
                 exitReason: "interrupt",
-                cursor: ["node-1"],
+                cursor: "node-1",
+                exitMessage: "",
             });
         });
 
         it("should resume when the resumeFrom is provided", async () => {
-            const result = await nodeSequence.run({ count: 0 }, {
-                resumeFrom: ["node-1"],
+            const result = await nodeSequence.invoke({ count: 0 }, {
+                resumeFrom: "node-1",
             });
             expect(result).toEqual({ state: { count: 1 }, exitReason: "end" });
         });
@@ -58,7 +58,7 @@ describe("NodeSequence", () => {
                 .next(subGraph)
                 .next(addOne);
 
-            const result = await nodeSequence.run({ count: 0 }, {});
+            const result = await nodeSequence.invoke({ count: 0 });
             expect(result).toEqual({ state: { count: 3 }, exitReason: "end" });
         });
 
@@ -76,17 +76,18 @@ describe("NodeSequence", () => {
                 .next(addOne);
 
             it("should interrupt when the nested graph is interrupted", async () => {
-                const result = await nodeSequence.run({ count: 0 }, {});
+                const result = await nodeSequence.invoke({ count: 0 });
                 expect(result).toEqual({
                     state: { count: 1 },
                     exitReason: "interrupt",
-                    cursor: ["node-0", "interrupt"],
+                    cursor: "node-0.interrupt",
+                    exitMessage: "",
                 });
             });
 
             it("should resume when the resumeFrom is provided", async () => {
-                const result = await nodeSequence.run({ count: 0 }, {
-                    resumeFrom: ["node-0", "interrupt"],
+                const result = await nodeSequence.invoke({ count: 0 }, {
+                    resumeFrom: "node-0.interrupt",
                 });
                 expect(result).toEqual({
                     state: { count: 1 },

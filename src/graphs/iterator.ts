@@ -1,28 +1,21 @@
-import { FunctionNode, NestedGraph, NodeLike } from "../nodes";
+import { FunctionNode, NodeLike } from "../nodes";
 import { END, Graph, START } from "./graph";
+import { ContextLayer, RuntimeContext } from "./runtime-context";
 
 // Iterator node selectors
 const ITERATOR_LOOP_NODE = "iterator-loop";
 const INCREMENT_INDEX_NODE = "increment-index";
 
-type IteratorState<T extends object, Prefix extends string> =
-    & T
-    & {
-        [K in `${Prefix}Index`]: number;
-    };
+type IteratorState<T extends object, Prefix extends string> = T & {
+    [K in `${Prefix}Index`]: number;
+};
 
 export type InteratorNodeState<
     T extends object,
     Prefix extends string,
-    Item extends any = any,
-> =
-    & IteratorState<T, Prefix>
-    & {
-        [K in `${Prefix}Item`]: Item;
-    };
-
-const isGraph = (node: any): node is Graph<any> => {
-    return "isGraph" in node && node.isGraph;
+    Item extends any = any
+> = IteratorState<T, Prefix> & {
+    [K in `${Prefix}Item`]: Item;
 };
 
 /**
@@ -33,29 +26,20 @@ const isGraph = (node: any): node is Graph<any> => {
 export class Interator<
     T extends object,
     Prefix extends string,
-    Item extends any = any,
-> extends Graph<
-    IteratorState<T, Prefix>,
-    T,
-    InteratorNodeState<T, Prefix, Item>
-> {
-    private index: number = 0;
-
+    Item extends any = any
+> extends Graph<T, InteratorNodeState<T, Prefix, Item>> {
     constructor(
         private readonly prefix: Prefix,
         private readonly iteratorSelector: (state: T) => Item[],
         private readonly loopedNode:
             | NodeLike<InteratorNodeState<T, Prefix, Item>>
-            | Graph<any, InteratorNodeState<T, Prefix, Item>>,
+            | Graph<any, InteratorNodeState<T, Prefix, Item>>
     ) {
         super();
-        if (isGraph(this.loopedNode)) {
-            this.nodes[ITERATOR_LOOP_NODE] = new NestedGraph(this.loopedNode);
-        } else {
-            this.nodes[ITERATOR_LOOP_NODE] = this.loopedNode;
-        }
-        this.nodes[INCREMENT_INDEX_NODE] = new FunctionNode(() => {
-            this.index++;
+        this.nodes[ITERATOR_LOOP_NODE] = this.loopedNode;
+        this.nodes[INCREMENT_INDEX_NODE] = new FunctionNode((_, context) => {
+            const indexContext = context.custom.indexCtx as ContextLayer;
+            indexContext.currentNode = (Number(indexContext.currentNode!) + 1).toString();
             return {};
         });
 
@@ -66,27 +50,20 @@ export class Interator<
         };
         this.edges[ITERATOR_LOOP_NODE] = INCREMENT_INDEX_NODE;
         this.conditionalEdges[INCREMENT_INDEX_NODE] = [ITERATOR_LOOP_NODE, END];
-        this.conditionalFuncs[INCREMENT_INDEX_NODE] = (state) => {
+        this.conditionalFuncs[INCREMENT_INDEX_NODE] = (state, context) => {
+            const indexContext = context.custom.indexCtx as ContextLayer;
+            const index = Number(indexContext.currentNode!);
             const iterator = this.iteratorSelector(state);
-            return this.index < iterator.length ? ITERATOR_LOOP_NODE : END;
+            return index < iterator.length ? ITERATOR_LOOP_NODE : END;
         };
-    }
-
-    protected ioToState(io: T): IteratorState<T, Prefix> {
-        return {
-            ...io,
-            [`${this.prefix}Index`]: 0,
-        } as IteratorState<T, Prefix>;
-    }
-
-    protected stateToIo(state: T): Partial<T> {
-        const { [`${this.prefix}Index`]: index, ...rest } = state as any;
-        return rest as Partial<T>;
     }
 
     protected stateToNodeState(
         state: IteratorState<T, Prefix>,
+        context: ContextLayer
     ): InteratorNodeState<T, Prefix, Item> {
+        const indexContext = context.custom.indexCtx as ContextLayer;
+        const index = Number(indexContext.currentNode!);
         const iterator = this.iteratorSelector(state);
         if (iterator === undefined) {
             throw new Error(`Selected iterator is not found`);
@@ -94,43 +71,51 @@ export class Interator<
         if (!Array.isArray(iterator)) {
             throw new Error(`Seletected iterator is not an array`);
         }
-        const item = iterator[this.index];
+        const item = iterator[index];
         if (item === undefined) {
-            throw new Error(`Item ${this.index} not found`);
+            throw new Error(`Item ${index} not found`);
         }
         return {
             ...state,
-            [`${this.prefix}Index`]: this.index,
+            [`${this.prefix}Index`]: index,
             [`${this.prefix}Item`]: item,
         } as InteratorNodeState<T, Prefix, Item>;
     }
 
     protected nodeStateToState(
         nodeState: Partial<InteratorNodeState<T, Prefix, Item>>,
+        context: ContextLayer
     ): IteratorState<T, Prefix> {
+        const arr = context.custom.arr as Item[];
+        const indexContext = context.custom.indexCtx as ContextLayer;
+        const index = Number(indexContext.currentNode!);
         if (`${this.prefix}Item` in nodeState) {
             const { [`${this.prefix}Item`]: item, ...rest } = nodeState as any;
-            const arr = this.iteratorSelector(this.state);
-            arr[this.index] = item;
+            arr[index] = item;
+            delete rest[`${this.prefix}Index`];
             return rest;
         }
         return nodeState as IteratorState<T, Prefix>;
     }
 
-    protected override recoverFromInterrupt(): {
-        cursor: string;
-        remainingResumeFrom: string[];
-    } {
-        const index = +this.config.resumeFrom![0]!;
-        this.index = index;
-        return {
-            cursor: this.config.resumeFrom![1]!,
-            remainingResumeFrom: this.config.resumeFrom!.slice(2),
-        };
-    }
+    override async run(
+        input: T,
+        contextOrRuntime: ContextLayer | RuntimeContext
+    ): Promise<Partial<T>> {
+        const indexContext = contextOrRuntime.nextLayer();
+        if (indexContext.currentNode === undefined) {
+            indexContext.currentNode = "0";
+        }
+        const context = indexContext.nextLayer();
+        if (context.currentNode === undefined) {
+            context.currentNode = START;
+        }
+        context.custom.indexCtx = indexContext;
+        context.custom.arr = this.iteratorSelector(input);
 
-    protected override setInterruptCursor(): string[] {
-        const index = this.index;
-        return [index.toString(), this.cursor];
+        const result = await this.runInternal(input, context);
+        context.done();
+        indexContext.done();
+        return result;
     }
 }

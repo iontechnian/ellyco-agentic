@@ -1,6 +1,6 @@
-import { NestedGraph } from "../nodes/nested-graph";
 import { END, Graph, START } from "./graph";
 import { type NodeLike } from "../nodes/types";
+import { ContextLayer } from "./runtime-context";
 
 export class StateMachine<T extends object> extends Graph<T> {
     addNode(name: string, node: NodeLike<T> | Graph<any, T>): this {
@@ -10,11 +10,7 @@ export class StateMachine<T extends object> extends Graph<T> {
         if (name in this.nodes) {
             throw new Error(`Node ${name} already exists`);
         }
-        if ("isGraph" in node && node.isGraph) {
-            this.nodes[name] = new NestedGraph(node);
-        } else {
-            this.nodes[name] = node;
-        }
+        this.nodes[name] = node;
         return this;
     }
 
@@ -36,14 +32,6 @@ export class StateMachine<T extends object> extends Graph<T> {
         this.conditionalEdges[from] = to;
         this.conditionalFuncs[from] = func;
         return this;
-    }
-
-    protected ioToState(io: T): T {
-        return io;
-    }
-
-    protected stateToIo(state: T): Partial<T> {
-        return state;
     }
 
     protected stateToNodeState(state: T): T {

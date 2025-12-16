@@ -1,7 +1,13 @@
-import { type NodeLike, type RunConfig } from "../nodes/types";
-
-export interface GraphResult<S> {
-    state: Partial<S>;
-    exitReason: "interrupt" | "end";
-    cursor?: string[];
+interface EndResult<S> {
+    state: S;
+    exitReason: "end";
 }
+
+interface InterruptResult<S> {
+    state: S;
+    exitReason: "interrupt";
+    exitMessage: string;
+    cursor: string;
+}
+
+export type GraphResult<S> = EndResult<S> | InterruptResult<S>;
