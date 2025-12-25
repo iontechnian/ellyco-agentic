@@ -1,9 +1,19 @@
+import { StoredRun } from "./store/stored-run";
+
 export class ContextLayer {
     public currentNode?: string;
     public custom: Record<string, any> = {};
 
+    get id(): string {
+        if (this.index === 0) {
+            return "ROOT";
+        }
+        const lastLayer = this.runtime.getLayer(this.index - 1);
+        return `${lastLayer.id}.${lastLayer.currentNode}`;
+    }
+
     constructor(
-        public readonly id: string,
+        public readonly index: number,
         public readonly runtime: RuntimeContext,
     ) { }
 
@@ -38,13 +48,15 @@ export class RuntimeContext {
         return this._resuming;
     }
 
+    constructor(public readonly runId: string, public readonly storedRun?: StoredRun) { }
+
     unwrapCursor(cursor: string): void {
         this._resuming = true;
         const layers = cursor.split(".");
         let idPrefix = "";
         for (const layer of layers) {
             const contextLayer = new ContextLayer(
-                idPrefix.length > 0 ? idPrefix : "ROOT",
+                this.contextLayers.length,
                 this,
             );
             contextLayer.currentNode = layer;
@@ -61,6 +73,10 @@ export class RuntimeContext {
         return layerCursors.join(".");
     }
 
+    getLayer(index: number): ContextLayer {
+        return this.contextLayers[index]!;
+    }
+
     nextLayer(): ContextLayer {
         // already a contextLayer present at this depth
         if (this.currentLayer < this.contextLayers.length - 1) {
@@ -69,7 +85,7 @@ export class RuntimeContext {
             return layer;
         }
         const contextLayer = new ContextLayer(
-            this.nextLayerId(),
+            this.contextLayers.length,
             this,
         );
         this.contextLayers.push(contextLayer);
@@ -89,13 +105,5 @@ export class RuntimeContext {
 
     markResumed(): void {
         this._resuming = false;
-    }
-
-    private nextLayerId(): string {
-        if (this.currentLayer === -1) {
-            return "ROOT";
-        }
-        const currentLayer = this.contextLayers[this.currentLayer]!;
-        return `${currentLayer.id}.${currentLayer.currentNode!}`;
     }
 }

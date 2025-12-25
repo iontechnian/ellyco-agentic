@@ -1,9 +1,9 @@
 import { END, Graph, START } from "./graph";
 import { type NodeLike } from "../nodes/types";
-import { ContextLayer } from "./runtime-context";
+import { z } from "zod";
 
-export class StateMachine<T extends object> extends Graph<T> {
-    addNode(name: string, node: NodeLike<T> | Graph<any, T>): this {
+export class StateMachine<T extends z.ZodObject, S extends Record<string, unknown> = z.infer<T>> extends Graph<T, S> {
+    addNode(name: string, node: NodeLike<S> | Graph<any, S>): this {
         if (name === START || name === END) {
             throw new Error(`Node ${name} is reserved`);
         }
@@ -22,7 +22,7 @@ export class StateMachine<T extends object> extends Graph<T> {
     addConditionalEdge<K extends string[]>(
         from: string,
         to: K,
-        func: (state: T) => K[number],
+        func: (state: S) => K[number],
     ): this {
         if (to.length === 0) {
             throw new Error(
@@ -34,11 +34,11 @@ export class StateMachine<T extends object> extends Graph<T> {
         return this;
     }
 
-    protected stateToNodeState(state: T): T {
+    protected stateToNodeState(state: S): S {
         return state;
     }
 
-    protected nodeStateToState(nodeState: T): T {
+    protected nodeStateToState(nodeState: Partial<S>): Partial<S> {
         return nodeState;
     }
 }

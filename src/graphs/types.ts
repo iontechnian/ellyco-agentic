@@ -1,9 +1,11 @@
 interface EndResult<S> {
+    runId: string;
     state: S;
     exitReason: "end";
 }
 
 interface InterruptResult<S> {
+    runId: string;
     state: S;
     exitReason: "interrupt";
     exitMessage: string;

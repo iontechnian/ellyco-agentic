@@ -1,42 +1,46 @@
+import { ContextLayer, RuntimeContext } from ".";
 import { FunctionNode, NodeLike } from "../nodes";
 import { END, Graph, START } from "./graph";
-import { ContextLayer, RuntimeContext } from "./runtime-context";
+import { z } from "zod";
+
+type IndexState<Prefix extends string> = {
+    [K in `${Prefix}Index`]: number;
+}
+
+type ItemState<Prefix extends string, Item extends any = any> = {
+    [K in `${Prefix}Item`]: Item;
+}
+
+export type IteratorNodeState<T extends object, Prefix extends string, Item extends any = any> = IndexState<Prefix> & ItemState<Prefix, Item> & T;
+
+type ZodIndexState<Prefix extends string> = z.ZodObject<{ [K in `${Prefix}Index`]: z.ZodNumber }>;
+type ZodItemState<Prefix extends string, Item extends any = any> = z.ZodObject<{ [K in `${Prefix}Item`]: z.ZodType<Item> }>;
+type ZodIteratorNodeState<T extends z.ZodObject, Prefix extends string, Item extends any = any> = ZodIndexState<Prefix> & ZodItemState<Prefix, Item> & T;
+
+type ArrayKeys<T> = {
+    [K in keyof T]: T[K] extends any[] ? K : never;
+}[keyof T];
+
 
 // Iterator node selectors
 const ITERATOR_LOOP_NODE = "iterator-loop";
 const INCREMENT_INDEX_NODE = "increment-index";
 
-type IteratorState<T extends object, Prefix extends string> = T & {
-    [K in `${Prefix}Index`]: number;
-};
-
-export type InteratorNodeState<
-    T extends object,
+export class Iterator<
+    Item extends any,
+    T extends z.ZodObject,
     Prefix extends string,
-    Item extends any = any
-> = IteratorState<T, Prefix> & {
-    [K in `${Prefix}Item`]: Item;
-};
-
-/**
- * Iterator can be given a node or a graph that it runs for each item in a specified array.
- * A prefix is specified for the index and item keys in this state. This is to avoid name conflicts if nested iterators are used.
- * The items get remapped into the specified array after each loop, so the Iterator can be used as a array mapper by modifying the item.
- */
-export class Interator<
-    T extends object,
-    Prefix extends string,
-    Item extends any = any
-> extends Graph<T, InteratorNodeState<T, Prefix, Item>> {
+    S extends Record<string, unknown> = z.infer<T>,
+    NS extends Record<string, unknown> = IteratorNodeState<S, Prefix, Item>
+> extends Graph<T, S, NS> {
     constructor(
+        protected readonly schema: T,
         private readonly prefix: Prefix,
-        private readonly iteratorSelector: (state: T) => Item[],
-        private readonly loopedNode:
-            | NodeLike<InteratorNodeState<T, Prefix, Item>>
-            | Graph<any, InteratorNodeState<T, Prefix, Item>>
+        // Disabled for now, until I can figure out a better approach for this
+        // private readonly iteratorSelector: (state: S | NS) => Item[],
+        private readonly iteratorKey: ArrayKeys<z.infer<T>>,
     ) {
-        super();
-        this.nodes[ITERATOR_LOOP_NODE] = this.loopedNode;
+        super(schema);
         this.nodes[INCREMENT_INDEX_NODE] = new FunctionNode((_, context) => {
             const indexContext = context.custom.indexCtx as ContextLayer;
             indexContext.currentNode = (Number(indexContext.currentNode!) + 1).toString();
@@ -45,26 +49,38 @@ export class Interator<
 
         this.conditionalEdges[START] = [ITERATOR_LOOP_NODE, END];
         this.conditionalFuncs[START] = (state) => {
-            const iterator = this.iteratorSelector(state);
+            const iterator = state[this.iteratorKey as keyof NS] as Item[];
             return iterator.length > 0 ? ITERATOR_LOOP_NODE : END;
         };
-        this.edges[ITERATOR_LOOP_NODE] = INCREMENT_INDEX_NODE;
-        this.conditionalEdges[INCREMENT_INDEX_NODE] = [ITERATOR_LOOP_NODE, END];
-        this.conditionalFuncs[INCREMENT_INDEX_NODE] = (state, context) => {
+        this.conditionalEdges[ITERATOR_LOOP_NODE] = [INCREMENT_INDEX_NODE, END];
+        this.conditionalFuncs[ITERATOR_LOOP_NODE] = (state, context) => {
             const indexContext = context.custom.indexCtx as ContextLayer;
             const index = Number(indexContext.currentNode!);
-            const iterator = this.iteratorSelector(state);
-            return index < iterator.length ? ITERATOR_LOOP_NODE : END;
+            const iterator = state[this.iteratorKey as keyof NS] as Item[];
+            return index < iterator.length - 1 ? INCREMENT_INDEX_NODE : END;
         };
+        this.edges[INCREMENT_INDEX_NODE] = ITERATOR_LOOP_NODE;
+    }
+
+    setLoopedNode(loopedNode: NodeLike<NS> | Graph<ZodIteratorNodeState<T, Prefix, Item>, NS>): this {
+        this.nodes[ITERATOR_LOOP_NODE] = loopedNode;
+        return this;
+    }
+
+    getNodeSchema(): ZodIteratorNodeState<T, Prefix, Item> {
+        return z.object({
+            [`${this.prefix}Index`]: z.number(),
+            [`${this.prefix}Item`]: this.schema.shape[this.iteratorKey as keyof typeof this.schema.shape] as z.ZodType<Item>,
+        }) as ZodIteratorNodeState<T, Prefix, Item>;
     }
 
     protected stateToNodeState(
-        state: IteratorState<T, Prefix>,
+        state: S,
         context: ContextLayer
-    ): InteratorNodeState<T, Prefix, Item> {
+    ): NS {
         const indexContext = context.custom.indexCtx as ContextLayer;
         const index = Number(indexContext.currentNode!);
-        const iterator = this.iteratorSelector(state);
+        const iterator = state[this.iteratorKey as keyof S] as Item[];
         if (iterator === undefined) {
             throw new Error(`Selected iterator is not found`);
         }
@@ -79,13 +95,13 @@ export class Interator<
             ...state,
             [`${this.prefix}Index`]: index,
             [`${this.prefix}Item`]: item,
-        } as InteratorNodeState<T, Prefix, Item>;
+        } as unknown as NS;
     }
 
     protected nodeStateToState(
-        nodeState: Partial<InteratorNodeState<T, Prefix, Item>>,
+        nodeState: Partial<NS>,
         context: ContextLayer
-    ): IteratorState<T, Prefix> {
+    ): S {
         const arr = context.custom.arr as Item[];
         const indexContext = context.custom.indexCtx as ContextLayer;
         const index = Number(indexContext.currentNode!);
@@ -95,13 +111,17 @@ export class Interator<
             delete rest[`${this.prefix}Index`];
             return rest;
         }
-        return nodeState as IteratorState<T, Prefix>;
+        return nodeState as S;
     }
 
     override async run(
-        input: T,
+        input: S,
         contextOrRuntime: ContextLayer | RuntimeContext
-    ): Promise<Partial<T>> {
+    ): Promise<Partial<S>> {
+        let state = structuredClone(input);
+        if (this.nodes[ITERATOR_LOOP_NODE] === undefined) {
+            throw new Error(`Looped node is not set`);
+        }
         const indexContext = contextOrRuntime.nextLayer();
         if (indexContext.currentNode === undefined) {
             indexContext.currentNode = "0";
@@ -111,11 +131,12 @@ export class Interator<
             context.currentNode = START;
         }
         context.custom.indexCtx = indexContext;
-        context.custom.arr = this.iteratorSelector(input);
+        context.custom.arr = state[this.iteratorKey as keyof S] as Item[];
 
-        const result = await this.runInternal(input, context);
+        const result = await this.runInternal(state, context);
+
         context.done();
         indexContext.done();
-        return result;
+        return { ...result, [this.iteratorKey]: structuredClone(context.custom.arr) };
     }
 }

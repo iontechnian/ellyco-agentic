@@ -1,17 +1,18 @@
 import { type NodeLike } from "../nodes";
 import { END, Graph, START } from "./graph";
-import { ContextLayer } from "./runtime-context";
+import { z } from "zod";
 
-export class NodeSequence<T extends object> extends Graph<T> {
-    protected stateToNodeState(state: T): T {
+export class NodeSequence<T extends z.ZodObject, S extends object = z.infer<T>> extends Graph<T, S> {
+
+    protected stateToNodeState(state: S): S {
         return state;
     }
 
-    protected nodeStateToState(nodeState: T): T {
+    protected nodeStateToState(nodeState: Partial<S>): Partial<S> {
         return nodeState;
     }
 
-    next(node: NodeLike<T> | Graph<any, T>): this {
+    next(node: NodeLike<S> | Graph<T, S>): this {
         const nodeCount = Object.keys(this.nodes).length;
         const name = `node-${nodeCount}`;
         const isFirstNode = nodeCount === 0;

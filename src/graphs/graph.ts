@@ -1,17 +1,42 @@
 import { type NodeLike } from "../nodes/types";
 import { type GraphResult } from "./types";
 import { ContextLayer, RuntimeContext } from "./runtime-context";
+import { BaseStore } from "./store/base-store";
+import { createId } from "@paralleldrive/cuid2";
+import { z } from "zod";
+import { mergeState } from "./merge-state";
+
+export type Tail<T extends unknown[]> = T extends [unknown, ...infer R] ? R : [];
 
 export const START = "start";
 export const END = "end";
 
 export interface RunConfig {
     resumeFrom?: string;
+    runId?: string;
+}
+
+export interface StoredRunConfig {
+    store: BaseStore;
+    runId?: string;
+    /** If true, the stored run will be deleted after the graph has ended. */
+    deleteAfterEnd?: boolean;
+}
+
+function isStoredRunConfig(config: RunConfig | StoredRunConfig): config is StoredRunConfig {
+    return "store" in config;
+}
+
+export type DerivedSchemaConstructorType<T> = ((schema: z.ZodObject) => T) & { derives: true };
+export const DerivedSchemaConstructor = <T>(constructor: (schema: z.ZodObject) => T): DerivedSchemaConstructorType<T> => {
+    Object.defineProperty(constructor, "derives", { value: true });
+    return constructor as DerivedSchemaConstructorType<T>;
 }
 
 export abstract class Graph<
-    S extends object,
-    NS extends object = S,
+    Z extends z.ZodObject,
+    S extends Record<string, unknown> = z.infer<Z>,
+    NS extends Record<string, unknown> = S,
 > implements NodeLike<S> {
     public readonly isGraph = true;
 
@@ -21,7 +46,10 @@ export abstract class Graph<
     protected conditionalFuncs: Record<string, (state: NS, context: ContextLayer) => string> = {};
 
     protected abstract stateToNodeState(state: S, context: ContextLayer): NS;
-    protected abstract nodeStateToState(nodeState: Partial<NS>, context: ContextLayer): S;
+    protected abstract nodeStateToState(nodeState: Partial<NS>, context: ContextLayer): Partial<S>;
+
+    constructor(protected readonly schema: Z) { }
+
 
     protected transition(state: S, context: ContextLayer): void {
         const currentNode = context.currentNode!;
@@ -53,18 +81,15 @@ export abstract class Graph<
         if (node === undefined) {
             throw new Error(`Node ${currentNode} not found`);
         }
-        const inputNodeState = this.stateToNodeState(state, context);
+        const inputNodeState = this.stateToNodeState(structuredClone(state), context);
         const result = await node.run(
-            { ...inputNodeState },
+            structuredClone(inputNodeState),
             context,
         );
         if (Object.keys(result).length === 0) {
             return state;
         }
-        return {
-            ...state,
-            ...this.nodeStateToState(result, context),
-        };
+        return this.mergeState(state, this.nodeStateToState(result, context));
     }
 
     validate(): void {
@@ -92,7 +117,7 @@ export abstract class Graph<
     }
 
     protected async runInternal(input: S, context: ContextLayer): Promise<Partial<S>> {
-        let state = { ...input };
+        let state = structuredClone(input);
         let shouldContinue = true;
         while (shouldContinue) {
             const currentNode = context.currentNode!;
@@ -107,7 +132,7 @@ export abstract class Graph<
                 continue;
             }
 
-            state = { ...state, ...(await this.step(state, context)) };
+            state = { ...state, ...(await this.step(structuredClone(state), context)) };
 
             if (context.runtime.interrupted) {
                 shouldContinue = false;
@@ -116,8 +141,11 @@ export abstract class Graph<
 
             this.transition(state, context);
         }
-
         return state;
+    }
+
+    protected mergeState(state: S, partial: Partial<S>): S {
+        return mergeState(state, partial, this.schema);
     }
 
     async run(input: S, contextOrRuntime: ContextLayer | RuntimeContext): Promise<Partial<S>> {
@@ -130,23 +158,74 @@ export abstract class Graph<
         return result;
     }
 
-    async invoke(input: S, config?: RunConfig): Promise<GraphResult<S>> {
-        const runtime = new RuntimeContext();
-        if (config?.resumeFrom) {
-            runtime.unwrapCursor(config.resumeFrom);
-        }
-        const result = await this.run(input, runtime);
-        if (runtime.interrupted) {
+    async invoke(input: S, config?: RunConfig): Promise<GraphResult<S>>;
+    async invoke(input: Partial<S>, config?: StoredRunConfig): Promise<GraphResult<S>>;
+    async invoke(input: S | Partial<S>, config?: RunConfig | StoredRunConfig): Promise<GraphResult<S>> {
+        const runId = (config && "runId" in config ? config.runId : createId())!;
+
+        if (config && isStoredRunConfig(config)) {
+            const partialInput = input as Partial<S>;
+            const storedRun = config.store.getStoredRun(runId);
+            const runtime = new RuntimeContext(runId, storedRun);
+
+            let mergedState: S = partialInput as S;
+            const stateExists = await storedRun.exists();
+            if (stateExists) {
+                const load = await storedRun.load();
+                mergedState = this.mergeState(mergedState, load.state);
+                runtime.unwrapCursor(load.cursor);
+            }
+            const state = this.schema.parse(mergedState) as S;
+
+            const result = await this.run(state, runtime);
+
+            const finalState = { ...state, ...result }
+            if (runtime.interrupted) {
+                await storedRun.save(runtime.wrapCursor(), finalState);
+                return {
+                    runId,
+                    state: finalState,
+                    exitReason: "interrupt",
+                    exitMessage: runtime.exitMessage,
+                    cursor: runtime.wrapCursor(),
+                };
+            }
+            if (config?.deleteAfterEnd) {
+                await storedRun.delete();
+            } else {
+                await storedRun.save(END, finalState);
+            }
             return {
-                state: { ...input, ...result },
-                exitReason: "interrupt",
-                exitMessage: runtime.exitMessage,
-                cursor: runtime.wrapCursor(),
+                runId,
+                state: finalState,
+                exitReason: "end",
+            };
+        } else {
+            const fullInput = input as S;
+            const runtime = new RuntimeContext(runId);
+            if (config?.resumeFrom) {
+                runtime.unwrapCursor(config.resumeFrom);
+            }
+            const state = this.schema.parse(fullInput) as S;
+
+            const result = await this.run(state, runtime);
+
+            const finalState = { ...state, ...result }
+            if (runtime.interrupted) {
+                return {
+                    runId,
+                    state: finalState,
+                    exitReason: "interrupt",
+                    exitMessage: runtime.exitMessage,
+                    cursor: runtime.wrapCursor(),
+                };
+            }
+            return {
+                runId,
+                state: finalState,
+                exitReason: "end",
             };
         }
-        return {
-            state: { ...input, ...result },
-            exitReason: "end",
-        };
+
     }
 }
