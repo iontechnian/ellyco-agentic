@@ -19,12 +19,15 @@ export function defineTool<T>(
 }
 
 interface ToolImplementation<T, K> extends ToolDefinition<T> {
-    func: (input: T) => Promise<K>;
+    func: (input: T) => K | Promise<K>;
 }
 
 export function tool<T, K>(
     toolDefinition: ToolDefinition<T>,
     func: (input: T) => K | Promise<K>,
 ): ToolImplementation<T, K> {
-    return;
+    return {
+        ...toolDefinition,
+        func,
+    };
 }

@@ -3,9 +3,9 @@ import {
     AgentMessage,
     BaseMessage,
     MessageContent,
+    ModelMessages,
     SystemMessage,
     ToolRequest,
-    ToolUse,
 } from "../messages";
 import { ToolDefinition } from "../tools";
 
@@ -13,11 +13,6 @@ export interface BaseModelConfig {
     temperature?: number;
     topP?: number;
     maxTokens?: number;
-}
-
-export enum InvokeResponseType {
-    AGENT_MESSAGE = "agent_message",
-    TOOL_REQUEST = "tool_request",
 }
 
 export interface InvokeResponseUsage {
@@ -33,18 +28,8 @@ export enum InvokeResponseStopReason {
     TOOL_USE = "tool_use",
 }
 
-export interface InvokeResponseAgentMessage {
-    type: InvokeResponseType.AGENT_MESSAGE;
-    message: AgentMessage;
-}
-
-export interface InvokeResponseToolRequest {
-    type: InvokeResponseType.TOOL_REQUEST;
-    request: ToolRequest;
-}
-
 export interface InvokeResponse {
-    messages: (InvokeResponseAgentMessage | InvokeResponseToolRequest)[];
+    messages: (AgentMessage | ToolRequest)[];
     usage: InvokeResponseUsage;
     stopReason?: InvokeResponseStopReason;
 }
@@ -87,20 +72,20 @@ export abstract class BaseModel {
         return this;
     }
 
-    withStructuredOutput<T>(
-        schema: z.ZodSchema<T>,
+    withStructuredOutput<T extends z.ZodObject>(
+        schema: T,
     ): StructuredOutputWrapper<T> {
         this.tools = [];
         this.structuredOutput = schema;
-        return new StructuredOutputWrapper<T>(this);
+        return new StructuredOutputWrapper<T>(this, schema);
     }
 
     protected abstract runModel(
-        messages: (BaseMessage | ToolUse)[],
+        messages: ModelMessages[],
     ): Promise<InvokeResponse>;
 
     async invoke(
-        messages: (BaseMessage | ToolUse)[],
+        messages: ModelMessages[],
         properties?: Record<string, any>,
     ): Promise<InvokeResponse> {
         if (!properties) {
@@ -122,31 +107,26 @@ export class ResponseNotStructuredOutputError extends Error {
     }
 }
 
-export class StructuredOutputWrapper<T> {
-    constructor(private readonly model: BaseModel) {}
+export class StructuredOutputWrapper<T extends z.ZodObject> {
+    constructor(private readonly model: BaseModel, private readonly schema: T) { }
 
     withSystemMessage(message: SystemMessage | MessageContent): this {
         this.model.withSystemMessage(message);
         return this;
     }
 
-    withTools(tools: ToolDefinition[]): this {
-        this.model.withTools(tools);
-        return this;
-    }
-
     async invoke(
-        messages: (BaseMessage | ToolUse)[],
+        messages: ModelMessages[],
         properties?: Record<string, any>,
-    ): Promise<T> {
+    ): Promise<z.infer<T>> {
         const response = await this.model.invoke(messages, properties);
         if (!response.messages.length) {
             throw new ResponseNotStructuredOutputError();
         }
-        if (response.messages[0]?.type !== InvokeResponseType.TOOL_REQUEST) {
+        if (!(response.messages[0] instanceof ToolRequest)) {
             throw new ResponseNotStructuredOutputError();
         }
-        const toolRequest = response.messages[0] as InvokeResponseToolRequest;
-        return toolRequest.request.input as T;
+        const toolRequest = response.messages[0] as ToolRequest;
+        return this.schema.parse(toolRequest.input);
     }
 }

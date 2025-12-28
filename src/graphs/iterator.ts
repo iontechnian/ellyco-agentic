@@ -1,5 +1,6 @@
 import { ContextLayer, RuntimeContext } from ".";
 import { FunctionNode, NodeLike } from "../nodes";
+import { TypedKeys } from "../types";
 import { END, Graph, START } from "./graph";
 import { z } from "zod";
 
@@ -17,9 +18,7 @@ type ZodIndexState<Prefix extends string> = z.ZodObject<{ [K in `${Prefix}Index`
 type ZodItemState<Prefix extends string, Item extends any = any> = z.ZodObject<{ [K in `${Prefix}Item`]: z.ZodType<Item> }>;
 type ZodIteratorNodeState<T extends z.ZodObject, Prefix extends string, Item extends any = any> = ZodIndexState<Prefix> & ZodItemState<Prefix, Item> & T;
 
-type ArrayKeys<T> = {
-    [K in keyof T]: T[K] extends any[] ? K : never;
-}[keyof T];
+type ArrayKeys<T> = TypedKeys<T, any[]>;
 
 
 // Iterator node selectors

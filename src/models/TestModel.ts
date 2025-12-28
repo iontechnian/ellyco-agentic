@@ -1,24 +1,22 @@
-import { BaseMessage, ToolUse } from "../messages";
 import { ToolDefinition } from "../tools";
 import {
     BaseModel,
     BaseModelConfig,
     InvokeResponse,
-    InvokeResponseAgentMessage,
     InvokeResponseStopReason,
-    InvokeResponseToolRequest,
 } from "./BaseModel";
 import * as z from "zod";
+import { AgentMessage, ModelMessages, ToolRequest } from "../messages";
 
 export class TestResponseConfig {
     toolsIncluded: ToolDefinition[] = [];
     responseMessages:
-        (InvokeResponseAgentMessage | InvokeResponseToolRequest)[] = [];
-    inputMessages: (BaseMessage | ToolUse)[] = [];
+        (AgentMessage | ToolRequest)[] = [];
+    inputMessages: ModelMessages[] = [];
     structuredOutput?: z.ZodSchema<any>;
 
     respondWith(
-        messages: (InvokeResponseAgentMessage | InvokeResponseToolRequest)[],
+        messages: (AgentMessage | ToolRequest)[],
     ): this {
         this.responseMessages = messages;
         return this;
@@ -34,7 +32,7 @@ export class TestResponseConfig {
         return this;
     }
 
-    userSends(messages: (BaseMessage | ToolUse)[]): this {
+    userSends(messages: ModelMessages[]): this {
         this.inputMessages = messages;
         return this;
     }
@@ -56,7 +54,7 @@ export class TestModel extends BaseModel {
     }
 
     findMatchingConfig(
-        messages: (BaseMessage | ToolUse)[],
+        messages: ModelMessages[],
     ): TestResponseConfig | undefined {
         const messagesSig = messages.map((message) => message.toJSON()).join(
             "\n",
@@ -70,7 +68,7 @@ export class TestModel extends BaseModel {
                 if (!this.structuredOutput) continue;
                 if (
                     JSON.stringify(z.toJSONSchema(config.structuredOutput)) ===
-                        JSON.stringify(z.toJSONSchema(this.structuredOutput))
+                    JSON.stringify(z.toJSONSchema(this.structuredOutput))
                 ) {
                     return config;
                 }
@@ -92,7 +90,7 @@ export class TestModel extends BaseModel {
     }
 
     protected runModel(
-        messages: (BaseMessage | ToolUse)[],
+        messages: ModelMessages[],
     ): Promise<InvokeResponse> {
         const matchingConfig = this.findMatchingConfig(messages);
         if (!matchingConfig) {

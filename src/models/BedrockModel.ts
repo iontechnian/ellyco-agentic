@@ -2,10 +2,7 @@ import {
     BaseModel,
     type BaseModelConfig,
     InvokeResponse,
-    InvokeResponseAgentMessage,
     InvokeResponseStopReason,
-    InvokeResponseToolRequest,
-    InvokeResponseType,
     InvokeResponseUsage,
 } from "./BaseModel";
 import {
@@ -27,6 +24,7 @@ import {
     AgentMessage,
     BaseMessage,
     MessageRole,
+    ModelMessages,
     ToolError,
     ToolRequest,
     ToolResponse,
@@ -51,7 +49,7 @@ export class BedrockModel extends BaseModel {
     }
 
     private convertMessagesToBedrockMessages(
-        messages: (BaseMessage | ToolUse)[],
+        messages: ModelMessages[],
     ): Message[] {
         const bedrockMessages: Message[] = [];
         for (const message of messages) {
@@ -241,7 +239,7 @@ export class BedrockModel extends BaseModel {
     }
 
     protected async runModel(
-        inputMessages: (BaseMessage | ToolUse)[],
+        inputMessages: ModelMessages[],
     ): Promise<InvokeResponse> {
         const bedrockMessages = this.convertMessagesToBedrockMessages(
             inputMessages,
@@ -272,22 +270,20 @@ export class BedrockModel extends BaseModel {
         }
 
         const messages:
-            (InvokeResponseAgentMessage | InvokeResponseToolRequest)[] = [];
+            (AgentMessage | ToolRequest)[] = [];
         for (const block of message.content) {
             if ("text" in block) {
-                messages.push({
-                    type: InvokeResponseType.AGENT_MESSAGE,
-                    message: new AgentMessage(block.text!),
-                });
+                messages.push(
+                    new AgentMessage(block.text!),
+                );
             } else if ("toolUse" in block) {
-                messages.push({
-                    type: InvokeResponseType.TOOL_REQUEST,
-                    request: new ToolRequest(
+                messages.push(
+                    new ToolRequest(
                         block.toolUse!.toolUseId!,
                         block.toolUse!.name!,
-                        block.toolUse!.input as object,
+                        block.toolUse!.input as any,
                     ),
-                });
+                );
             } else {
                 console.warn("Unknown block type", block);
             }

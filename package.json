@@ -12,7 +12,7 @@
     "build": "tsc"
   },
   "keywords": [],
-  "author": "Elina Auramveil",
+  "author": "Elina Garcia",
   "license": "MIT",
   "peerDependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.929.0",

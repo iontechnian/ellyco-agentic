@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TestModel, TestResponseConfig } from "./TestModel";
 import { AgentMessage, ToolRequest, UserMessage } from "../messages";
-import { InvokeResponseType } from "./BaseModel";
 import { ToolDefinition } from "../tools";
 import * as z from "zod";
 
@@ -11,16 +10,10 @@ describe("TestModel", () => {
         const userMessage = new UserMessage("Hi");
         const agentMessage = new AgentMessage("Hello, how are you?");
         model.addTestConfig(
-            new TestResponseConfig().userSends([userMessage]).respondWith([{
-                type: InvokeResponseType.AGENT_MESSAGE,
-                message: agentMessage,
-            }]),
+            new TestResponseConfig().userSends([userMessage]).respondWith([agentMessage]),
         );
         const response = await model.invoke([userMessage]);
-        expect(response.messages).toStrictEqual([{
-            type: InvokeResponseType.AGENT_MESSAGE,
-            message: agentMessage,
-        }]);
+        expect(response.messages).toStrictEqual([agentMessage]);
     });
 
     it("handles tool calling given a certain input", async () => {
@@ -40,17 +33,11 @@ describe("TestModel", () => {
         model.addTestConfig(
             new TestResponseConfig().includedTools([tool]).userSends([
                 userMessage,
-            ]).respondWith([{
-                type: InvokeResponseType.TOOL_REQUEST,
-                request: toolRequest,
-            }]),
+            ]).respondWith([toolRequest]),
         );
         model.withTools([tool]);
         const response = await model.invoke([userMessage]);
-        expect(response.messages).toStrictEqual([{
-            type: InvokeResponseType.TOOL_REQUEST,
-            request: toolRequest,
-        }]);
+        expect(response.messages).toStrictEqual([toolRequest]);
     });
 
     it("handles input with interpolation", async () => {
@@ -64,15 +51,9 @@ describe("TestModel", () => {
         });
         model.addTestConfig(
             new TestResponseConfig().userSends([expectedUserMessage])
-                .respondWith([{
-                    type: InvokeResponseType.TOOL_REQUEST,
-                    request: expectedToolRequest,
-                }]),
+                .respondWith([expectedToolRequest]),
         );
         const response = await model.invoke([userMessage], { city: "London" });
-        expect(response.messages).toStrictEqual([{
-            type: InvokeResponseType.TOOL_REQUEST,
-            request: expectedToolRequest,
-        }]);
+        expect(response.messages).toStrictEqual([expectedToolRequest]);
     });
 });

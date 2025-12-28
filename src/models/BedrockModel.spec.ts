@@ -1,12 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { BedrockModel } from "./BedrockModel";
 import * as dotenv from "dotenv";
-import { SystemMessage, UserMessage } from "../messages";
-import {
-    InvokeResponseAgentMessage,
-    InvokeResponseToolRequest,
-    InvokeResponseType,
-} from "./BaseModel";
+import { AgentMessage, ToolRequest, UserMessage } from "../messages";
 import { ToolDefinition } from "../tools";
 import * as z from "zod";
 
@@ -32,13 +27,7 @@ describe.skip("BedrockModel", () => {
         const userMessage = new UserMessage("Hello, how are you?");
         const response = await model.invoke([userMessage]);
         expect(response.messages.length).toBeGreaterThanOrEqual(1);
-        expect(response.messages[0].type).toBe(
-            InvokeResponseType.AGENT_MESSAGE,
-        );
-        console.log(
-            (response.messages[0] as InvokeResponseAgentMessage).message
-                .toString(),
-        );
+        expect(response.messages[0]).toBeInstanceOf(AgentMessage);
     });
 
     it("should call a tool", async () => {
@@ -56,12 +45,11 @@ describe.skip("BedrockModel", () => {
         expect(response.messages.length).toBeGreaterThanOrEqual(1);
 
         const toolRequest = response.messages.find((message) =>
-            message.type === InvokeResponseType.TOOL_REQUEST
-        ) as InvokeResponseToolRequest;
+            message instanceof ToolRequest
+        ) as ToolRequest;
 
-        expect(toolRequest.request.toolName).toBe(tool.name);
-        expect(toolRequest.request.input).toStrictEqual({ city: "Tokyo" });
-        console.log(toolRequest);
+        expect(toolRequest.toolName).toBe(tool.name);
+        expect(toolRequest.input).toStrictEqual({ city: "Tokyo" });
     });
 
     it("should respond with a structured output", async () => {
@@ -94,6 +82,5 @@ describe.skip("BedrockModel", () => {
         // );
 
         expect(response).toStrictEqual({ cities: ["Tokyo", "Osaka"] });
-        console.log(response.toString());
     });
 });
