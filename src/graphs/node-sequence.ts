@@ -25,7 +25,7 @@ import { z } from "zod";
  * // State transitions: 5 -> 6 -> 12
  * ```
  */
-export class NodeSequence<T extends z.ZodObject, S extends object = z.infer<T>> extends Graph<T, S> {
+export class NodeSequence<T extends z.ZodObject, S extends Record<string, unknown> = z.infer<T>> extends Graph<T, S> {
 
     /**
      * NodeSequence doesn't transform state, so node state is the same as graph state.

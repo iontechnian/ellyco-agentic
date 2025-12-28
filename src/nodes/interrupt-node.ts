@@ -26,13 +26,13 @@ import { ContextLayer } from "../graphs";
  * }
  * ```
  */
-export class InterruptNode<T extends object> implements NodeLike<T> {
+export class InterruptNode<T extends Record<string, unknown>> implements NodeLike<T> {
     /**
      * Creates an interrupt node.
      * 
      * @param {string} [message] - Optional message to send when interrupting
      */
-    constructor(private readonly message?: string) {}
+    constructor(private readonly message?: string) { }
 
     /**
      * Executes the interrupt.
