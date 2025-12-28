@@ -33,21 +33,63 @@ import {
 import * as z from "zod";
 import { ToolDefinition } from "../tools";
 
+/**
+ * Configuration for BedrockModel combining BaseModel config with AWS-specific settings.
+ * 
+ * @interface BedrockModelConfig
+ * @extends {BaseModelConfig}
+ * @property {string} modelId - The ID of the Bedrock model (e.g., "anthropic.claude-3-sonnet-20240229-v1:0")
+ * @property {BedrockRuntimeClientConfig} [aws] - Optional AWS SDK configuration
+ */
 export type BedrockModelConfig = BaseModelConfig & {
     modelId: string;
     aws?: BedrockRuntimeClientConfig;
 };
 
+/**
+ * Model implementation using AWS Bedrock as the backend.
+ * Handles communication with Bedrock API for inference, tools, and structured output.
+ * 
+ * @class BedrockModel
+ * @extends {BaseModel}
+ * 
+ * @example
+ * ```typescript
+ * const model = new BedrockModel({
+ *   modelId: "anthropic.claude-3-sonnet-20240229-v1:0",
+ *   temperature: 0.7,
+ *   maxTokens: 2048
+ * });
+ * 
+ * model.withSystemMessage("You are a helpful assistant")
+ *   .withTools([searchTool]);
+ * 
+ * const response = await model.invoke([userMessage]);
+ * ```
+ */
 export class BedrockModel extends BaseModel {
     private modelId: string;
     private client: BedrockRuntimeClient;
 
+    /**
+     * Creates a new Bedrock model instance.
+     * 
+     * @param {BedrockModelConfig} config - Configuration including model ID and AWS settings
+     */
     constructor(config: BedrockModelConfig) {
         super(config);
         this.modelId = config.modelId;
         this.client = new BedrockRuntimeClient(config.aws ?? {});
     }
 
+    /**
+     * Converts internal message format to Bedrock API message format.
+     * Handles BaseMessages (user, agent, system) and ToolUse messages (requests, responses, errors).
+     * 
+     * @private
+     * @param {ModelMessages[]} messages - Messages to convert
+     * @returns {Message[]} Messages in Bedrock format
+     */
     private convertMessagesToBedrockMessages(
         messages: ModelMessages[],
     ): Message[] {
@@ -127,6 +169,13 @@ export class BedrockModel extends BaseModel {
         return bedrockMessages;
     }
 
+    /**
+     * Converts a tool definition to Bedrock tool specification format.
+     * 
+     * @private
+     * @param {ToolDefinition} tool - The tool definition to convert
+     * @returns {Tool} Bedrock formatted tool specification
+     */
     private convertToolDefinitionToBedrockTool(tool: ToolDefinition): Tool {
         return {
             toolSpec: {
@@ -139,6 +188,14 @@ export class BedrockModel extends BaseModel {
         };
     }
 
+    /**
+     * Builds the tool configuration for Bedrock.
+     * For structured output, creates a single "output" tool that captures the schema.
+     * For regular tools, converts all tool definitions.
+     * 
+     * @private
+     * @returns {ToolConfiguration} Tool configuration for Bedrock
+     */
     private getBedrockToolConfig(): ToolConfiguration {
         if (this.structuredOutput) {
             return {
@@ -167,6 +224,13 @@ export class BedrockModel extends BaseModel {
         };
     }
 
+    /**
+     * Maps Bedrock stop reason to internal stop reason enum.
+     * 
+     * @private
+     * @param {ConverseCommandOutput} response - The Bedrock API response
+     * @returns {InvokeResponseStopReason} Mapped stop reason
+     */
     private mapStopReason(
         response: ConverseCommandOutput,
     ): InvokeResponseStopReason {
@@ -184,6 +248,12 @@ export class BedrockModel extends BaseModel {
         }
     }
 
+    /**
+     * Builds inference configuration chunk with temperature, topP, and maxTokens if set.
+     * 
+     * @private
+     * @returns {{inferenceConfig?: InferenceConfiguration}} Configuration chunk or empty object
+     */
     private getInferenceConfigChunk(): {
         inferenceConfig?: InferenceConfiguration;
     } {
@@ -198,6 +268,13 @@ export class BedrockModel extends BaseModel {
         return {};
     }
 
+    /**
+     * Builds system message chunk.
+     * For structured output, adds a directive to only call the output tool.
+     * 
+     * @private
+     * @returns {{system?: SystemContentBlock[]}} System messages or empty object
+     */
     private getSystemMessageChunk(): { system?: SystemContentBlock[] } {
         if (this.systemMessage) {
             return {
@@ -228,6 +305,12 @@ export class BedrockModel extends BaseModel {
         return {};
     }
 
+    /**
+     * Builds tool configuration chunk.
+     * 
+     * @private
+     * @returns {{toolConfig?: ToolConfiguration}} Tool configuration or empty object
+     */
     private getToolConfigChunk(): { toolConfig?: ToolConfiguration } {
         const toolConfig = this.getBedrockToolConfig();
         if (toolConfig.tools && toolConfig.tools.length > 0) {
@@ -238,6 +321,14 @@ export class BedrockModel extends BaseModel {
         return {};
     }
 
+    /**
+     * Executes the model inference with Bedrock API.
+     * Sends messages to Bedrock, processes the response, and converts it to internal format.
+     * 
+     * @protected
+     * @param {ModelMessages[]} inputMessages - Messages to send to the model
+     * @returns {Promise<InvokeResponse>} The model's response with messages and usage stats
+     */
     protected async runModel(
         inputMessages: ModelMessages[],
     ): Promise<InvokeResponse> {
