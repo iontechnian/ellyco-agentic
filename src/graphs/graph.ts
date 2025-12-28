@@ -7,7 +7,7 @@ import { z } from "zod";
 import { mergeState } from "./merge-state";
 import { trace } from "@opentelemetry/api";
 
-const tracer = trace.getTracer("@ellyco/agentic", "0.1.0");
+const tracer = trace.getTracer("@ellyco/agentic", "0.1.1");
 
 /**
  * Utility type to get all but the first element of a tuple.
