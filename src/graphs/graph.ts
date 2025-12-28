@@ -5,6 +5,9 @@ import { BaseStore } from "./store/base-store";
 import { createId } from "@paralleldrive/cuid2";
 import { z } from "zod";
 import { mergeState } from "./merge-state";
+import { trace } from "@opentelemetry/api";
+
+const tracer = trace.getTracer("@ellyco/agentic", "0.1.0");
 
 /**
  * Utility type to get all but the first element of a tuple.
@@ -221,15 +224,33 @@ export abstract class Graph<
         if (node === undefined) {
             throw new Error(`Node ${currentNode} not found`);
         }
-        const inputNodeState = this.stateToNodeState(structuredClone(state), context);
-        const result = await node.run(
-            structuredClone(inputNodeState),
-            context,
-        );
-        if (Object.keys(result).length === 0) {
-            return state;
-        }
-        return this.mergeState(state, this.nodeStateToState(result, context));
+        return await tracer.startActiveSpan(currentNode, {
+            attributes: {
+                runId: context.runtime.runId,
+                nodeName: currentNode,
+                layerId: context.id,
+            }
+        }, async (span) => {
+            const inputNodeState = this.stateToNodeState(structuredClone(state), context);
+            const result = await node.run(
+                structuredClone(inputNodeState),
+                context,
+            );
+            if (Object.keys(result).length === 0) {
+                span.setAttributes({
+                    changes: JSON.stringify({}),
+                    newState: JSON.stringify(state),
+                });
+                return state;
+            }
+            const changes = this.nodeStateToState(result, context);
+            const mergedState = this.mergeState(state, changes);
+            span.setAttributes({
+                changes: JSON.stringify(changes),
+                newState: JSON.stringify(mergedState),
+            });
+            return mergedState;
+        });
     }
 
     /**

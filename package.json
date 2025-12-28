@@ -2,8 +2,6 @@
   "name": "@ellyco/agentic",
   "version": "0.1.0",
   "description": "Simple AI Agent Library",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "files": [
     "dist"
   ],
@@ -20,6 +18,7 @@
     "zod": "^4.2.1"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "@paralleldrive/cuid2": "^3.0.4",
     "typescript": "^5.9.3"
   },

@@ -12,6 +12,7 @@ A powerful TypeScript framework for building stateful, agentic workflows with bu
 🔄 **State Management** - Declarative state merging with support for custom merge strategies  
 🔀 **Flexible Graphs** - State machines, linear sequences, and iterators for different workflow patterns  
 📦 **Fully Typed** - Complete TypeScript support with Zod schema validation  
+📊 **OpenTelemetry Observability** - Built-in distributed tracing for monitoring and debugging  
 
 ## Installation
 
@@ -391,6 +392,141 @@ const response = await testModel.invoke([new UserMessage("Hello")]);
 expect(response.messages[0].text).toBe("Hi there!");
 ```
 
+### OpenTelemetry Traces
+
+Graphs automatically emit OpenTelemetry traces for observability and debugging. Each node execution is captured as a span with rich context and state information.
+
+#### Setup
+
+OpenTelemetry is included as a dependency. Configure a tracer provider and exporter in your application:
+
+```typescript
+import { BasicTracerProvider, ConsoleSpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
+
+// Create a basic tracer provider
+const provider = new BasicTracerProvider();
+provider.addSpanProcessor(
+  new SimpleSpanProcessor(new ConsoleSpanExporter())
+);
+
+// For production, use a real exporter (Jaeger, OTLP, etc.)
+// const exporter = new OTLPTraceExporter({
+//   url: 'http://localhost:4317/v1/traces'
+// });
+// provider.addSpanProcessor(new BatchSpanProcessor(exporter));
+
+// Set the global tracer provider
+import { trace } from '@opentelemetry/api';
+trace.setGlobalTracerProvider(provider);
+```
+
+#### Automatic Span Collection
+
+Every node execution in a graph automatically creates a span with:
+
+- **Span name**: Node name (e.g., "process", "validate", "search")
+- **Attributes**:
+  - `runId` - Unique identifier for the graph run
+  - `nodeName` - Name of the node being executed
+  - `layerId` - Context layer ID (for nested graphs)
+  - `changes` - JSON-stringified state changes from the node
+  - `newState` - JSON-stringified complete state after merge
+
+```typescript
+// When this node runs, a span is automatically created
+graph.addNode("process", makeNode((state) => {
+  return { processed: true, count: state.count + 1 };
+}));
+
+// Span details:
+// {
+//   name: "process",
+//   attributes: {
+//     runId: "run-abc123",
+//     nodeName: "process",
+//     layerId: "ROOT",
+//     changes: '{"processed":true,"count":6}',
+//     newState: '{"input":"hello","processed":true,"count":6}'
+//   }
+// }
+```
+
+#### Viewing Traces
+
+**Console Output**:
+Simple tracing for development:
+```typescript
+import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-node';
+```
+
+**Jaeger Integration**:
+Visualize traces in real-time:
+```typescript
+import { JaegerExporter } from '@opentelemetry/exporter-trace-jaeger-http';
+
+const exporter = new JaegerExporter({
+  serviceName: 'ellyco-agentic',
+  host: 'localhost',
+  port: 6831
+});
+
+provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+```
+
+Then access the Jaeger UI at `http://localhost:16686`
+
+**OTLP Export**:
+Export traces to any OTLP-compatible backend:
+```typescript
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+
+const exporter = new OTLPTraceExporter({
+  url: 'http://localhost:4317/v1/traces'
+});
+
+provider.addSpanProcessor(new BatchSpanProcessor(exporter));
+```
+
+#### Tracing Nested Graphs
+
+When graphs call other graphs, context layers create a hierarchical span structure:
+
+```typescript
+// Parent graph
+const parentGraph = new StateMachine(parentSchema);
+parentGraph.addNode("delegate", new FunctionNode(async (state) => {
+  // Calling a subgraph
+  return await subGraph.run(state, context);
+}));
+
+// Traces show hierarchy:
+// ├─ run-id: run-abc123
+// │  ├─ process (layerId: ROOT)
+// │  ├─ delegate (layerId: ROOT.delegate)
+// │  │  ├─ subprocess (layerId: ROOT.delegate.subprocess)
+// │  │  └─ validate (layerId: ROOT.delegate.validate)
+// │  └─ finalize (layerId: ROOT)
+```
+
+#### Debugging with Traces
+
+Traces are invaluable for:
+- **Performance analysis** - Identify slow nodes
+- **State debugging** - See how state evolves through the graph
+- **Error investigation** - Track state at each step before failure
+- **Production monitoring** - Monitor graph executions in real-time
+
+```typescript
+// Example: Find slow nodes
+const traces = await exporter.getTraces();
+traces.forEach(span => {
+  const duration = span.endTime - span.startTime;
+  if (duration > 5000) {
+    console.warn(`Slow node: ${span.attributes.nodeName} took ${duration}ms`);
+  }
+});
+```
+
 ## Architecture
 
 ### Execution Flow
@@ -555,6 +691,10 @@ console.log("Summary:", result.state.summary);
 db.close();
 ```
 
+## License
 
+MIT
+
+---
 
 **Questions?** Check out the comprehensive JSDoc comments throughout the codebase for detailed API documentation and examples!
