@@ -17,7 +17,7 @@ A powerful TypeScript framework for building stateful, agentic workflows with bu
 ## Installation
 
 ```bash
-npm install ellyco-agentic
+npm install @ellyco/agentic
 ```
 
 ### Dependencies
@@ -31,7 +31,7 @@ npm install ellyco-agentic
 ### 1. Define Your Messages
 
 ```typescript
-import { SystemMessage, UserMessage, AgentMessage } from 'ellyco-agentic';
+import { SystemMessage, UserMessage, AgentMessage } from '@ellyco/agentic';
 
 const systemMsg = new SystemMessage(
   "You are a helpful assistant that processes data."
@@ -46,7 +46,7 @@ userMsg.interpolate({ data: "important info" });
 ### 2. Define Your Tools
 
 ```typescript
-import { defineTool, tool } from 'ellyco-agentic';
+import { defineTool, tool } from '@ellyco/agentic';
 import { z } from 'zod';
 
 const searchTool = defineTool(
@@ -70,7 +70,7 @@ const searchImplementation = tool(
 ### 3. Configure Your Model
 
 ```typescript
-import { BedrockModel } from 'ellyco-agentic';
+import { BedrockModel } from '@ellyco/agentic';
 
 const model = new BedrockModel({
   modelId: "anthropic.claude-3-sonnet-20240229-v1:0",
@@ -86,7 +86,7 @@ const response = await model.invoke([userMsg]);
 ### 4. Build a Graph
 
 ```typescript
-import { StateMachine, makeNode } from 'ellyco-agentic';
+import { StateMachine, makeNode } from '@ellyco/agentic';
 import { z } from 'zod';
 
 const schema = z.object({
@@ -178,7 +178,7 @@ Nodes are the building blocks of graphs - they execute logic and return partial 
 Simple synchronous or asynchronous functions.
 
 ```typescript
-import { makeNode } from 'ellyco-agentic';
+import { makeNode } from '@ellyco/agentic';
 
 const node = makeNode((state, context) => ({
   processed: true,
@@ -212,7 +212,7 @@ const confirmNode = new InterruptNode(
 Messages represent communication in the system with different roles:
 
 ```typescript
-import { SystemMessage, UserMessage, AgentMessage } from 'ellyco-agentic';
+import { SystemMessage, UserMessage, AgentMessage } from '@ellyco/agentic';
 
 // System messages set context
 const system = new SystemMessage("You are a data analyst");
@@ -230,7 +230,7 @@ const agent = new AgentMessage("The analysis shows...");
 Tools enable models to request external operations:
 
 ```typescript
-import { ToolRequest, ToolResponse, ToolError } from 'ellyco-agentic';
+import { ToolRequest, ToolResponse, ToolError } from '@ellyco/agentic';
 
 // Model requests a tool
 const request = new ToolRequest(
@@ -296,7 +296,7 @@ if (result.exitReason === "interrupt") {
 Use SQLite to persist and resume runs across sessions:
 
 ```typescript
-import { SQLiteStore } from 'ellyco-agentic';
+import { SQLiteStore } from '@ellyco/agentic';
 import Database from 'better-sqlite3';
 
 // Setup database
@@ -348,7 +348,7 @@ console.log(result.explanation);   // string
 Implement your own model provider:
 
 ```typescript
-import { BaseModel, InvokeResponse, ModelMessages } from 'ellyco-agentic';
+import { BaseModel, InvokeResponse, ModelMessages } from '@ellyco/agentic';
 
 class MyCustomModel extends BaseModel {
   protected async runModel(
@@ -376,7 +376,7 @@ const model = new MyCustomModel({ temperature: 0.7 });
 Use the mock model for testing without hitting real APIs:
 
 ```typescript
-import { TestModel, TestResponseConfig } from 'ellyco-agentic';
+import { TestModel, TestResponseConfig } from '@ellyco/agentic';
 
 const testModel = new TestModel({ temperature: 0.7 });
 
@@ -628,7 +628,7 @@ import {
   SQLiteStore,
   defineTool,
   tool
-} from 'ellyco-agentic';
+} from '@ellyco/agentic';
 import { z } from 'zod';
 import Database from 'better-sqlite3';
 

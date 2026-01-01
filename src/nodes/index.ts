@@ -1,3 +1,4 @@
-export { FunctionNode, makeNode } from "./function-node";
-export { InterruptNode } from "./interrupt-node";
-export { type NodeLike } from "./types";
+export * from "./function-node";
+export * from "./interrupt-node";
+export * from "./model-node";
+export * from "./types";
