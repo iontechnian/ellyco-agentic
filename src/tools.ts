@@ -50,9 +50,10 @@ export function defineTool<T>(
  * 
  * @template T - The input type for the tool
  * @template K - The output type returned by the tool function
+ * @template A - The additional arguments type
  */
-interface ToolImplementation<T, K> extends ToolDefinition<T> {
-    func: (input: T) => K | Promise<K>;
+export interface ToolImplementation<T, K, A extends Record<string, any>> extends ToolDefinition<T> {
+    func: (input: T, additionalArgs?: A) => K | Promise<K>;
 }
 
 /**
@@ -60,9 +61,10 @@ interface ToolImplementation<T, K> extends ToolDefinition<T> {
  * 
  * @template T - The input parameter type
  * @template K - The return type of the tool function
+ * @template A - The additional arguments type
  * @param {ToolDefinition<T>} toolDefinition - The tool definition created with defineTool()
- * @param {(input: T) => K | Promise<K>} func - The function that implements the tool's behavior
- * @returns {ToolImplementation<T, K>} A complete tool with both definition and implementation
+ * @param {(input: T, additionalArgs?: Record<string, any>) => K | Promise<K>} func - The function that implements the tool's behavior
+ * @returns {ToolImplementation<T, K, A>} A complete tool with both definition and implementation
  * 
  * @example
  * ```typescript
@@ -74,10 +76,10 @@ interface ToolImplementation<T, K> extends ToolDefinition<T> {
  * );
  * ```
  */
-export function tool<T, K>(
+export function tool<T, K, A extends Record<string, any>>(
     toolDefinition: ToolDefinition<T>,
-    func: (input: T) => K | Promise<K>,
-): ToolImplementation<T, K> {
+    func: (input: T, additionalArgs?: A) => K | Promise<K>,
+): ToolImplementation<T, K, A> {
     return {
         ...toolDefinition,
         func,

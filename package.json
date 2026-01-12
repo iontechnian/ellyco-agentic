@@ -1,7 +1,11 @@
 {
   "name": "@ellyco/agentic",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Simple AI Agent Library",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iontechnian/ellyco-agentic"
+  },
   "files": [
     "dist"
   ],

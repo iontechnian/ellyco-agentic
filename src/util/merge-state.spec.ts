@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { mergeState } from "./merge-state";
-import { STATE_MERGE } from "./registry";
+import { STATE_MERGE } from "../graphs/registry";
+import { ModelMessages } from "../messages";
+import { UserMessage } from "../messages";
 
 describe("mergeState", () => {
     // without a merge function, the changes replace the existing state
@@ -67,5 +69,16 @@ describe("mergeState", () => {
         const changes: Partial<schemaType> = { messages: [{ id: "2", content: "World" }] };
         const result = mergeState(state, changes, schema);
         expect(result).toEqual({ messages: [{ id: "1", content: "Hello" }, { id: "2", content: "World" }] });
+    });
+
+    it("should handle merging Message arrays", () => {
+        const schema = z.object({
+            messages: z.array(z.custom<ModelMessages>()).register(STATE_MERGE, { merge: (old: ModelMessages[], change: ModelMessages[]) => old.concat(change) }),
+        });
+        type schemaType = z.infer<typeof schema>;
+        const state: schemaType = { messages: [new UserMessage("Hello")] };
+        const changes: Partial<schemaType> = { messages: [new UserMessage("World")] };
+        const result = mergeState(state, changes, schema);
+        expect(result).toStrictEqual({ messages: [new UserMessage("Hello"), new UserMessage("World")] });
     });
 });

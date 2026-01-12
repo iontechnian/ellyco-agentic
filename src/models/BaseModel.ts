@@ -7,7 +7,8 @@ import {
     SystemMessage,
     ToolRequest,
 } from "../messages";
-import { ToolDefinition } from "../tools";
+import { ToolDefinition, ToolImplementation } from "../tools";
+import { ReActAgent } from "./react-agent";
 
 /**
  * Configuration options for model initialization.
@@ -229,6 +230,11 @@ export abstract class BaseModel {
             }
             return message;
         }));
+    }
+
+    makeReActAgent(tools: ToolImplementation<any, any, any>[]): ReActAgent {
+        this.tools = [];
+        return new ReActAgent(this, tools);
     }
 }
 

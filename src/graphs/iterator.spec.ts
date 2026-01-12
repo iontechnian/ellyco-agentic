@@ -28,8 +28,8 @@ describe("Iterator", () => {
     it("should run a simple iterator", async () => {
         const iterator = new Iterator(
             schema,
-            "loop",
             "inputs",
+            "loop",
         );
         iterator.setLoopedNode(timesTwo);
         const result = await iterator.invoke(
@@ -50,8 +50,8 @@ describe("Iterator", () => {
             .next(plusOne);
         const iterator = new Iterator(
             schema,
-            "loop",
             "inputs",
+            "loop",
         );
         iterator.setLoopedNode(nodeSequence);
         const result = await iterator.invoke(
@@ -74,8 +74,8 @@ describe("Iterator", () => {
 
         const iterator = new Iterator(
             schema,
-            "loop",
             "inputs",
+            "loop",
         );
         iterator.setLoopedNode(nodeSequence);
         it("should interrupt when the iterator is interrupted", async () => {

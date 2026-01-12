@@ -6,6 +6,8 @@ import { InterruptNode } from "../nodes/interrupt-node";
 import { z } from "zod";
 import { SQLiteStore } from "./store/sqlite-store";
 import Database from "better-sqlite3";
+import { STATE_MERGE } from "./registry";
+import { AgentMessage, ModelMessages, UserMessage } from "../messages";
 
 const schema = z.object({
     count: z.number(),
@@ -318,6 +320,50 @@ describe("StateMachine", () => {
                     state: { count: 3 },
                 });
             });
+        });
+
+        describe("run-5 (messages array)", async () => {
+            it("should properly handle a schema with a messages array", async () => {
+                const runId = "run-5";
+                const schema = z.object({
+                    messages: z.array(z.custom<ModelMessages>()).register(STATE_MERGE, { merge: (old: ModelMessages[], change: ModelMessages[]) => old.concat(change) }),
+                });
+                const userMessage = new UserMessage("Hello");
+                const agentMessage = new AgentMessage("Hello");
+                const stateMachine = new StateMachine(schema);
+                stateMachine
+                    .addNode("reply", makeNode((state) => ({ messages: [agentMessage] })))
+                    .addEdge(START, "reply")
+                    .addEdge("reply", END);
+
+                const result = await stateMachine.invoke({ messages: [userMessage] }, { runId, store });
+                expect(result).toEqual({
+                    state: { messages: [userMessage, agentMessage] },
+                    exitReason: "end",
+                    runId,
+                });
+            });
+        });
+    });
+
+    it("should properly handle a schema with a messages array", async () => {
+        const schema = z.object({
+            messages: z.array(z.custom<ModelMessages>()).register(STATE_MERGE, { merge: (old: ModelMessages[], change: ModelMessages[]) => old.concat(change) }),
+        });
+        const userMessage = new UserMessage("Hello");
+        const agentMessage = new AgentMessage("Hello");
+        const stateMachine = new StateMachine(schema);
+        stateMachine
+            .addNode("reply", makeNode((state) => ({ messages: [agentMessage] })))
+            .addEdge(START, "reply")
+            .addEdge("reply", END);
+
+        const result = await stateMachine.invoke({ messages: [userMessage] }, { runId });
+
+        expect(result).toEqual({
+            state: { messages: [userMessage, agentMessage] },
+            exitReason: "end",
+            runId,
         });
     });
 });

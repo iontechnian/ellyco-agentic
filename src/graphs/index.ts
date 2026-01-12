@@ -1,7 +1,6 @@
 export * from "./store";
 export * from "./graph";
 export * from "./iterator";
-export * from "./merge-state";
 export * from "./node-sequence";
 export * from "./registry";
 export * from "./runtime-context";

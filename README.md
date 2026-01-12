@@ -162,7 +162,7 @@ const schema = z.object({
   items: z.array(z.object({ value: z.number() }))
 });
 
-const iterator = new Iterator(schema, "item", "items");
+const iterator = new Iterator(schema, "items", "item");
 iterator.setLoopedNode(loopedNode);
 
 const result = await iterator.invoke({ 
@@ -227,43 +227,74 @@ const agent = new AgentMessage("The analysis shows...");
 
 ### Tool Usage
 
-Tools enable models to request external operations:
+Tools enable models to request external operations. Define tools and attach them to models:
 
 ```typescript
-import { ToolRequest, ToolResponse, ToolError } from '@ellyco/agentic';
+import { defineTool } from '@ellyco/agentic';
+import { z } from 'zod';
 
-// Model requests a tool
-const request = new ToolRequest(
-  "call_123",
-  "search",
-  { query: "latest news" }
+// Define a tool with input schema
+const weatherTool = defineTool(
+  "get_weather",
+  "Get current weather for a location",
+  z.object({
+    location: z.string(),
+    unit: z.enum(["celsius", "fahrenheit"]).optional()
+  })
 );
 
-// Tool execution succeeds
-const response = new ToolResponse(
-  "call_123",
-  "search",
-  { results: [...] }
-);
+// Attach tool to model
+const model = new BedrockModel({ modelId: "..." })
+  .withTools([weatherTool]);
 
-// Or fails
-const error = new ToolError(
-  "call_123",
-  "search",
-  "API rate limit exceeded"
-);
+// When you invoke the model, it can request tool usage
+// The model's response will include ToolRequest messages that you can handle
+const response = await model.invoke([
+  new UserMessage("What's the weather in San Francisco?")
+]);
+
+// Check for tool requests in the response
+for (const message of response.messages) {
+  if (message instanceof ToolRequest) {
+    // Execute the tool based on message.name and message.input
+    // Then add ToolResponse or ToolError back to the conversation
+  }
+}
 ```
 
 ### State Management
 
-State flows through graphs, with each node returning partial updates that are merged using the schema:
+State flows through graphs, with each node returning partial updates that are automatically merged:
 
 ```typescript
-const base = { count: 5, items: [1, 2, 3] };
-const changes = { count: 10, items: [4, 5] };
+const schema = z.object({
+  count: z.number(),
+  items: z.array(z.string()),
+  status: z.string().optional()
+});
 
-// Merged state
-const merged = { count: 10, items: [4, 5] };
+const graph = new StateMachine(schema);
+
+// Node 1: Sets initial values
+graph.addNode("init", makeNode((state) => ({
+  count: 0,
+  items: ["a", "b"]
+})));
+
+// Node 2: Updates count and adds items
+graph.addNode("update", makeNode((state) => ({
+  count: state.count + 1,
+  items: [...state.items, "c"]
+})));
+
+// Node 3: Sets status
+graph.addNode("finalize", makeNode((state) => ({
+  status: `Processed ${state.count} items`
+})));
+
+// State evolves: {count: 0, items: ["a","b"]} 
+//            → {count: 1, items: ["a","b","c"]} 
+//            → {count: 1, items: ["a","b","c"], status: "Processed 1 items"}
 ```
 
 ## Advanced Features
@@ -309,7 +340,7 @@ let result = await graph.invoke(initialState, { store });
 if (result.exitReason === "interrupt") {
   // Later, in a different process:
   const db2 = new Database("runs.db");
-  const store2 = new SQLiteStore(db2);
+  const store2 = new SQLiteStore(db2, "graph_runs");
   
   // Resume from stored checkpoint
   const result2 = await graph.invoke(result.state, {
@@ -345,10 +376,15 @@ console.log(result.explanation);   // string
 
 ### Custom Models
 
-Implement your own model provider:
+Implement your own model provider by extending `BaseModel`:
 
 ```typescript
-import { BaseModel, InvokeResponse, ModelMessages } from '@ellyco/agentic';
+import { 
+  BaseModel, 
+  InvokeResponse, 
+  InvokeResponseStopReason,
+  ModelMessages 
+} from '@ellyco/agentic';
 
 class MyCustomModel extends BaseModel {
   protected async runModel(
@@ -360,15 +396,22 @@ class MyCustomModel extends BaseModel {
       body: JSON.stringify({ messages })
     });
     
+    const data = await response.json();
+    
     return {
-      messages: [...],
-      usage: { inputTokens: 100, outputTokens: 50 },
+      messages: data.messages, // Array of AgentMessage or ToolRequest
+      usage: { 
+        inputTokens: data.usage.inputTokens, 
+        outputTokens: data.usage.outputTokens 
+      },
       stopReason: InvokeResponseStopReason.END_TURN
     };
   }
 }
 
-const model = new MyCustomModel({ temperature: 0.7 });
+const model = new MyCustomModel({ temperature: 0.7 })
+  .withSystemMessage("You are helpful")
+  .withTools([myTool]);
 ```
 
 ### Testing with TestModel
@@ -487,27 +530,6 @@ const exporter = new OTLPTraceExporter({
 provider.addSpanProcessor(new BatchSpanProcessor(exporter));
 ```
 
-#### Tracing Nested Graphs
-
-When graphs call other graphs, context layers create a hierarchical span structure:
-
-```typescript
-// Parent graph
-const parentGraph = new StateMachine(parentSchema);
-parentGraph.addNode("delegate", new FunctionNode(async (state) => {
-  // Calling a subgraph
-  return await subGraph.run(state, context);
-}));
-
-// Traces show hierarchy:
-// ├─ run-id: run-abc123
-// │  ├─ process (layerId: ROOT)
-// │  ├─ delegate (layerId: ROOT.delegate)
-// │  │  ├─ subprocess (layerId: ROOT.delegate.subprocess)
-// │  │  └─ validate (layerId: ROOT.delegate.validate)
-// │  └─ finalize (layerId: ROOT)
-```
-
 #### Debugging with Traces
 
 Traces are invaluable for:
@@ -516,102 +538,43 @@ Traces are invaluable for:
 - **Error investigation** - Track state at each step before failure
 - **Production monitoring** - Monitor graph executions in real-time
 
-```typescript
-// Example: Find slow nodes
-const traces = await exporter.getTraces();
-traces.forEach(span => {
-  const duration = span.endTime - span.startTime;
-  if (duration > 5000) {
-    console.warn(`Slow node: ${span.attributes.nodeName} took ${duration}ms`);
-  }
-});
-```
-
-## Architecture
-
-### Execution Flow
-
-```
-Graph.invoke()
-  ↓
-Create RuntimeContext
-  ↓
-Loop:
-  - Get current node
-  - Execute node.run(state, context)
-  - Merge returned state
-  - Check for interrupts
-  - Transition to next node
-  ↓
-Return result (end or interrupt)
-```
-
-### State Transformation
-
-```
-Graph State
-    ↓
-stateToNodeState() ← Node gets specific state type
-    ↓
-Node.run() ← Node executes
-    ↓
-nodeStateToState() ← Convert back to graph state
-    ↓
-mergeState() ← Merge with existing state
-    ↓
-Updated Graph State
-```
-
-### Context Layers
-
-Nested graphs create a stack of context layers for tracking execution position:
-
-```typescript
-RuntimeContext
-  └─ ContextLayer 0 (root)
-     ├─ currentNode: "node1"
-     ├─ custom: { ... }
-     └─ ContextLayer 1 (nested graph)
-        ├─ currentNode: "subnode"
-        └─ custom: { ... }
-```
+When graphs call other graphs (nested execution), traces automatically show the hierarchical structure with layer IDs, making it easy to understand the execution flow.
 
 ## API Reference
 
+This is a high-level overview. For detailed API documentation, see the JSDoc comments in the source code.
+
 ### Graph Classes
 
-- **`Graph<Z, S, NS>`** - Abstract base class for all graphs
 - **`StateMachine<T, S>`** - Flexible graph with manual node/edge definition
 - **`NodeSequence<T, S>`** - Linear graph executing nodes in sequence
 - **`Iterator<Item, T, Prefix, S, NS>`** - Loop over array items
 
 ### Node Classes
 
-- **`FunctionNode<T>`** - Execute a function
-- **`ModelNode<T>`** - Invoke an AI model
-- **`InterruptNode<T>`** - Pause execution
+- **`FunctionNode<T>`** - Execute a function (or use `makeNode()` helper)
+- **`ModelNode<T>`** - Invoke an AI model and store response in state
+- **`InterruptNode<T>`** - Pause execution for external input
 
 ### Message Classes
 
-- **`BaseMessage`** - Abstract message base
 - **`SystemMessage`** - System context message
-- **`UserMessage`** - User request message
+- **`UserMessage`** - User request message (supports template interpolation)
 - **`AgentMessage`** - Agent response message
-- **`ToolRequest<T>`** - Tool invocation request
+- **`ToolRequest<T>`** - Tool invocation request from models
 - **`ToolResponse<T>`** - Tool execution result
 - **`ToolError`** - Tool execution error
 
 ### Model Classes
 
-- **`BaseModel`** - Abstract model base class
+- **`BaseModel`** - Abstract base class for custom model implementations
 - **`BedrockModel`** - AWS Bedrock integration
 - **`TestModel`** - Mock model for testing
 
 ### Storage Classes
 
-- **`BaseStore`** - Abstract store interface
-- **`SQLiteStore`** - SQLite-based persistence
-- **`StoredRun`** - Single run checkpoint wrapper
+- **`SQLiteStore`** - SQLite-based persistence for checkpoints
+- **`StoredRun`** - Wrapper for interacting with a specific run's stored state
 
 ## Complete Example
 
@@ -626,8 +589,7 @@ import {
   UserMessage,
   SystemMessage,
   SQLiteStore,
-  defineTool,
-  tool
+  defineTool
 } from '@ellyco/agentic';
 import { z } from 'zod';
 import Database from 'better-sqlite3';

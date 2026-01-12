@@ -4,10 +4,11 @@ import { ContextLayer, RuntimeContext } from "./runtime-context";
 import { BaseStore } from "./store/base-store";
 import { createId } from "@paralleldrive/cuid2";
 import { z } from "zod";
-import { mergeState } from "./merge-state";
-import { trace } from "@opentelemetry/api";
+import { mergeState } from "../util/merge-state";
+import { Exception, trace } from "@opentelemetry/api";
+import { cloneAware } from "../util";
 
-const tracer = trace.getTracer("@ellyco/agentic", "0.1.2");
+const tracer = trace.getTracer("@ellyco/agentic", "0.2.0");
 
 /**
  * Utility type to get all but the first element of a tuple.
@@ -231,25 +232,31 @@ export abstract class Graph<
                 layerId: context.id,
             }
         }, async (span) => {
-            const inputNodeState = this.stateToNodeState(structuredClone(state), context);
-            const result = await node.run(
-                structuredClone(inputNodeState),
-                context,
-            );
-            if (Object.keys(result).length === 0) {
+            try {
+                const inputNodeState = this.stateToNodeState(state, context);
+                const result = await node.run(
+                    cloneAware(inputNodeState),
+                    context,
+                );
+                if (Object.keys(result).length === 0) {
+                    span.setAttributes({
+                        changes: JSON.stringify({}),
+                        newState: JSON.stringify(state),
+                    });
+                    return state;
+                }
+                const changes = this.nodeStateToState(result, context);
+                const mergedState = this.mergeState(state, changes);
                 span.setAttributes({
-                    changes: JSON.stringify({}),
-                    newState: JSON.stringify(state),
+                    changes: JSON.stringify(changes),
+                    newState: JSON.stringify(mergedState),
                 });
-                return state;
+                return mergedState;
+            } catch (error) {
+                console.error(`Exception encountered at node ${context.id}.${currentNode}`);
+                span.recordException(error as unknown as Exception);
+                throw error;
             }
-            const changes = this.nodeStateToState(result, context);
-            const mergedState = this.mergeState(state, changes);
-            span.setAttributes({
-                changes: JSON.stringify(changes),
-                newState: JSON.stringify(mergedState),
-            });
-            return mergedState;
         });
     }
 
@@ -293,7 +300,7 @@ export abstract class Graph<
      * @returns {Promise<Partial<S>>} Final state changes
      */
     protected async runInternal(input: S, context: ContextLayer): Promise<Partial<S>> {
-        let state = structuredClone(input);
+        let state = cloneAware(input);
         let shouldContinue = true;
         while (shouldContinue) {
             const currentNode = context.currentNode!;
@@ -308,7 +315,7 @@ export abstract class Graph<
                 continue;
             }
 
-            state = { ...state, ...(await this.step(structuredClone(state), context)) };
+            state = { ...state, ...(await this.step(state, context)) };
 
             if (context.runtime.interrupted) {
                 shouldContinue = false;
@@ -413,57 +420,70 @@ export abstract class Graph<
                 mergedState = this.mergeState(mergedState, load.state);
                 runtime.unwrapCursor(load.cursor);
             }
-            const state = this.schema.parse(mergedState) as S;
+            try {
+                const state = this.schema.parse(mergedState) as S;
 
-            const result = await this.run(state, runtime);
+                const result = await this.run(state, runtime);
 
-            const finalState = { ...state, ...result }
-            if (runtime.interrupted) {
-                await storedRun.save(runtime.wrapCursor(), finalState);
+                const finalState = { ...state, ...result }
+                if (runtime.interrupted) {
+                    await storedRun.save(runtime.wrapCursor(), finalState);
+                    return {
+                        runId,
+                        state: finalState,
+                        exitReason: "interrupt",
+                        exitMessage: runtime.exitMessage,
+                        cursor: runtime.wrapCursor(),
+                    };
+                }
+                if (config?.deleteAfterEnd) {
+                    await storedRun.delete();
+                } else {
+                    await storedRun.save(END, finalState);
+                }
                 return {
                     runId,
                     state: finalState,
-                    exitReason: "interrupt",
-                    exitMessage: runtime.exitMessage,
-                    cursor: runtime.wrapCursor(),
+                    exitReason: "end",
                 };
+            } catch (error) {
+                if (error instanceof z.ZodError) {
+                    throw new Error(`Input does not match schema: ${error.message}`);
+                }
+                throw error;
             }
-            if (config?.deleteAfterEnd) {
-                await storedRun.delete();
-            } else {
-                await storedRun.save(END, finalState);
-            }
-            return {
-                runId,
-                state: finalState,
-                exitReason: "end",
-            };
         } else {
             const fullInput = input as S;
             const runtime = new RuntimeContext(runId);
             if (config?.resumeFrom) {
                 runtime.unwrapCursor(config.resumeFrom);
             }
-            const state = this.schema.parse(fullInput) as S;
+            try {
+                const state = this.schema.parse(fullInput) as S;
 
-            const result = await this.run(state, runtime);
+                const result = await this.run(state, runtime);
 
-            const finalState = { ...state, ...result }
-            if (runtime.interrupted) {
+                const finalState = { ...state, ...result }
+                if (runtime.interrupted) {
+                    return {
+                        runId,
+                        state: finalState,
+                        exitReason: "interrupt",
+                        exitMessage: runtime.exitMessage,
+                        cursor: runtime.wrapCursor(),
+                    };
+                }
                 return {
                     runId,
                     state: finalState,
-                    exitReason: "interrupt",
-                    exitMessage: runtime.exitMessage,
-                    cursor: runtime.wrapCursor(),
+                    exitReason: "end",
                 };
+            } catch (error) {
+                if (error instanceof z.ZodError) {
+                    throw new Error(`Input does not match schema: ${error.message}`);
+                }
+                throw error;
             }
-            return {
-                runId,
-                state: finalState,
-                exitReason: "end",
-            };
         }
-
     }
 }

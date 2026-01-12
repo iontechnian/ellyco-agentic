@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { STATE_MERGE } from "./registry";
+import { STATE_MERGE } from "../graphs/registry";
+import { cloneAware } from "./clone-aware";
 
 /**
  * Merges partial state updates into a base state object.
@@ -21,7 +22,7 @@ import { STATE_MERGE } from "./registry";
  * ```
  */
 export function mergeState<T extends Record<string, any>>(base: T, changes: Partial<T>, schema: z.ZodObject): T {
-    const acc = structuredClone(base);
+    const acc = cloneAware(base);
     for (const [key, value] of Object.entries(changes)) {
         // if there's nothing already present for the key, then we just set the value
         if (acc[key] === undefined || acc[key] === null) {
@@ -34,17 +35,21 @@ export function mergeState<T extends Record<string, any>>(base: T, changes: Part
             continue;
         }
         if (typeof value === "object") {
+            // The value is a class
+            if ('constructor' in value && !["Object", "Array"].includes(value.constructor.name)) {
+                (acc as Record<string, any>)[key] = value;
+                continue;
+            }
+            // The value is an array
             if (Array.isArray(acc[key])) {
                 (acc as Record<string, any>)[key] = value;
-            } else {
-                (acc as Record<string, any>)[key] = mergeState((acc as Record<string, any>)[key], value as Partial<T>, schema.shape[key] as z.ZodObject);
+                continue;
             }
+
+            // The value is a plain object
+            (acc as Record<string, any>)[key] = mergeState((acc as Record<string, any>)[key], value as Partial<T>, schema.shape[key] as z.ZodObject);
         } else {
-            if (STATE_MERGE.has(schema.shape[key]) && acc[key] !== undefined) {
-                (acc as Record<string, any>)[key] = STATE_MERGE.get(schema.shape[key])!.merge(acc[key], value);
-            } else {
-                (acc as Record<string, any>)[key] = value;
-            }
+            (acc as Record<string, any>)[key] = value;
         }
     }
     return acc;

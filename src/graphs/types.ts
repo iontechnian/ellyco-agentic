@@ -1,10 +1,10 @@
-interface EndResult<S> {
+export interface EndResult<S> {
     runId: string;
     state: S;
     exitReason: "end";
 }
 
-interface InterruptResult<S> {
+export interface InterruptResult<S> {
     runId: string;
     state: S;
     exitReason: "interrupt";

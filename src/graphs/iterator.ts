@@ -1,6 +1,7 @@
 import { ContextLayer, RuntimeContext } from ".";
 import { FunctionNode, NodeLike } from "../nodes";
 import { TypedKeys } from "../types";
+import { cloneAware } from "../util";
 import { END, Graph, START } from "./graph";
 import { z } from "zod";
 
@@ -75,24 +76,28 @@ const INCREMENT_INDEX_NODE = "increment-index";
  * @template S - The inferred state type from T
  * @template NS - The node state type including index and item
  * 
- * @example
- * ```typescript
- * const schema = z.object({
- *   items: z.array(z.object({ name: z.string(), value: z.number() }))
- * });
- * 
- * const iterator = new Iterator(schema, "item", "items");
- * const looped = new NodeSequence(iterator.getNodeSchema());
- * looped.next(new FunctionNode((state) => ({
- *   itemValue: state.itemItem.value * 2
- * })));
- * 
- * iterator.setLoopedNode(looped);
- * 
- * const result = await iterator.invoke({ 
- *   items: [{ name: "a", value: 1 }, { name: "b", value: 2 }]
- * });
- * ```
+     * @example
+     * ```typescript
+     * const schema = z.object({
+     *   items: z.array(z.object({ name: z.string(), value: z.number() }))
+     * });
+     * 
+     * // With explicit prefix
+     * const iterator = new Iterator(schema, "items", "item");
+     * // Or without prefix (uses iteratorKey as prefix)
+     * const iterator2 = new Iterator(schema, "items");
+     * 
+     * const looped = new NodeSequence(iterator.getNodeSchema());
+     * looped.next(new FunctionNode((state) => ({
+     *   itemValue: state.itemItem.value * 2
+     * })));
+     * 
+     * iterator.setLoopedNode(looped);
+     * 
+     * const result = await iterator.invoke({ 
+     *   items: [{ name: "a", value: 1 }, { name: "b", value: 2 }]
+     * });
+     * ```
  */
 export class Iterator<
     Item extends any,
@@ -105,15 +110,15 @@ export class Iterator<
      * Creates an iterator graph.
      * 
      * @param {T} schema - The base state schema
-     * @param {Prefix} prefix - Prefix for index and item keys
      * @param {ArrayKeys<z.infer<T>>} iteratorKey - The state key containing the array to iterate
+     * @param {Prefix} [prefix] - Optional prefix for index and item keys. If not provided, uses iteratorKey
      */
     constructor(
         protected readonly schema: T,
-        private readonly prefix: Prefix,
         // Disabled for now, until I can figure out a better approach for this
         // private readonly iteratorSelector: (state: S | NS) => Item[],
         private readonly iteratorKey: ArrayKeys<z.infer<T>>,
+        private readonly prefix: Prefix = iteratorKey as unknown as Prefix,
     ) {
         super(schema);
         this.nodes[INCREMENT_INDEX_NODE] = new FunctionNode((_, context) => {
@@ -229,7 +234,7 @@ export class Iterator<
         input: S,
         contextOrRuntime: ContextLayer | RuntimeContext
     ): Promise<Partial<S>> {
-        let state = structuredClone(input);
+        let state = cloneAware(input);
         if (this.nodes[ITERATOR_LOOP_NODE] === undefined) {
             throw new Error(`Looped node is not set`);
         }
@@ -248,6 +253,6 @@ export class Iterator<
 
         context.done();
         indexContext.done();
-        return { ...result, [this.iteratorKey]: structuredClone(context.custom.arr) };
+        return { ...result, [this.iteratorKey]: cloneAware(context.custom.arr) };
     }
 }
