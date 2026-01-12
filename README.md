@@ -138,7 +138,7 @@ sm.addNode("path2", path2Node);
 // Conditional edge - route based on state
 sm.addConditionalEdge(
   "decision",
-  ["path1", "path2", "end"],
+  ["path1", "path2"],
   (state) => state.priority > 5 ? "path1" : "path2"
 );
 ```
