@@ -8,10 +8,10 @@ import * as z from "zod";
  * @property {string} [description] - Human-readable description of what the tool does
  * @property {z.ZodSchema<T>} schema - Zod schema that validates the tool's input parameters
  */
-export interface ToolDefinition<T = object> {
+export interface ToolDefinition<T = z.ZodObject> {
     name: string;
     description?: string;
-    schema: z.ZodSchema<T>;
+    schema: T;
 }
 
 /**
@@ -33,10 +33,10 @@ export interface ToolDefinition<T = object> {
  * );
  * ```
  */
-export function defineTool<T>(
+export function defineTool<T extends z.ZodObject>(
     name: string,
     description: string,
-    schema: z.ZodSchema<T>,
+    schema: T,
 ): ToolDefinition<T> {
     return {
         name,
@@ -52,8 +52,8 @@ export function defineTool<T>(
  * @template K - The output type returned by the tool function
  * @template A - The additional arguments type
  */
-export interface ToolImplementation<T, K, A extends Record<string, any>> extends ToolDefinition<T> {
-    func: (input: T, additionalArgs?: A) => K | Promise<K>;
+export interface ToolImplementation<T extends z.ZodObject, K, A extends Record<string, any>> extends ToolDefinition<T> {
+    func: (input: z.infer<T>, additionalArgs?: A) => K | Promise<K>;
 }
 
 /**
@@ -76,9 +76,9 @@ export interface ToolImplementation<T, K, A extends Record<string, any>> extends
  * );
  * ```
  */
-export function tool<T, K, A extends Record<string, any>>(
+export function tool<T extends z.ZodObject, K, A extends Record<string, any>>(
     toolDefinition: ToolDefinition<T>,
-    func: (input: T, additionalArgs?: A) => K | Promise<K>,
+    func: (input: z.infer<T>, additionalArgs?: A) => K | Promise<K>,
 ): ToolImplementation<T, K, A> {
     return {
         ...toolDefinition,

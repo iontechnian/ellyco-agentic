@@ -8,7 +8,7 @@ import { mergeState } from "../util/merge-state";
 import { Exception, trace } from "@opentelemetry/api";
 import { cloneAware } from "../util";
 
-const tracer = trace.getTracer("@ellyco/agentic", "0.2.0");
+const tracer = trace.getTracer("@ellyco/agentic", "0.2.1");
 
 /**
  * Utility type to get all but the first element of a tuple.
@@ -421,7 +421,7 @@ export abstract class Graph<
                 runtime.unwrapCursor(load.cursor);
             }
             try {
-                const state = this.schema.parse(mergedState) as S;
+                const state = this.schema.loose().parse(mergedState) as S;
 
                 const result = await this.run(state, runtime);
 
@@ -459,7 +459,7 @@ export abstract class Graph<
                 runtime.unwrapCursor(config.resumeFrom);
             }
             try {
-                const state = this.schema.parse(fullInput) as S;
+                const state = this.schema.loose().parse(fullInput) as S;
 
                 const result = await this.run(state, runtime);
 

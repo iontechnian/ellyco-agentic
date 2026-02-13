@@ -1,0 +1,165 @@
+import { ToolRequest, ToolResponse } from "../messages";
+import { makeNode, NodeLike } from "../nodes";
+import { ToolDefinition, ToolImplementation } from "../tools";
+import { Graph } from "./graph";
+import { z } from "zod";
+import { ContextLayer } from "./runtime-context";
+
+/**
+ * Type guard to check if a tool is a ToolImplementation (has a func property).
+ * 
+ * @private
+ * @template TT - The Zod schema type for the tool input
+ * @template TK - The output type returned by the tool function
+ * @template TA - The additional arguments type
+ * @param {ToolDefinition<TT> | ToolImplementation<TT, TK, TA>} tool - The tool to check
+ * @returns {boolean} True if the tool is a ToolImplementation
+ */
+function isToolImplementation<TT extends z.ZodObject, TK extends Record<string, unknown>, TA extends Record<string, any>>(tool: ToolDefinition<TT> | ToolImplementation<TT, TK, TA>): tool is ToolImplementation<TT, TK, TA> {
+    return "func" in tool;
+}
+
+/**
+ * A graph that creates branches for each tool, allowing you to specify custom nodes or graphs
+ * to execute when a particular tool is requested.
+ * 
+ * ToolSet extends Graph to provide a specialized graph structure where:
+ * - Each tool gets its own branch/node in the graph
+ * - Tool requests are extracted from state using a pull function
+ * - Tool responses are pushed back into state using a push function
+ * - Tools can be added with either implementations (functions) or custom nodes/graphs
+ * 
+ * This is useful for creating workflows where different tools require different execution
+ * logic or when you want to compose complex tool handling using graphs.
+ * 
+ * @class ToolSet
+ * @extends {Graph<T, S>}
+ * @template T - The Zod schema for the graph state
+ * @template S - The inferred state type from T
+ * 
+ * @example
+ * ```typescript
+ * const schema = z.object({
+ *   toolRequest: z.object({ name: z.string(), input: z.any() }).optional(),
+ *   toolResponse: z.any().optional()
+ * });
+ * 
+ * const toolSet = new ToolSet(
+ *   schema,
+ *   (state, context) => state.toolRequest!, // Extract tool request from state
+ *   (response, context) => ({ toolResponse: response }) // Push response back to state
+ * );
+ * 
+ * // Add a tool with a custom node
+ * const searchTool = defineTool("search", "Search", z.object({ query: z.string() }));
+ * toolSet.addTool(searchTool, makeNode((state) => {
+ *   // Custom logic for search tool
+ *   return { results: [] };
+ * }));
+ * 
+ * // Add a tool with an implementation
+ * const calcTool = tool(
+ *   defineTool("calc", "Calculate", z.object({ expr: z.string() })),
+ *   (input) => eval(input.expr)
+ * );
+ * toolSet.addTool(calcTool); // Uses default node wrapper
+ * ```
+ */
+export class ToolSet<T extends z.ZodObject, S extends Record<string, unknown> = z.infer<T>> extends Graph<T, S> {
+
+    /**
+     * Creates a new ToolSet graph.
+     * 
+     * @param {T} schema - Zod schema for validating and typing the graph state
+     * @param {Function} pullToolRequest - Function that extracts a ToolRequest from state and context
+     * @param {Function} pushToolResponse - Function that converts a ToolResponse into partial state updates
+     */
+    constructor(
+        protected readonly schema: T,
+        pullToolRequest: (state: S, context: ContextLayer) => ToolRequest<z.infer<T>>,
+        pushToolResponse: (response: ToolResponse, context: ContextLayer) => Partial<S>
+    ) {
+        super(schema);
+    }
+
+    /**
+     * ToolSet doesn't transform state, so node state is the same as graph state.
+     * 
+     * @protected
+     * @param {S} state - The graph state
+     * @returns {S} The same state
+     */
+    protected stateToNodeState(state: S): S {
+        return state;
+    }
+
+    /**
+     * ToolSet doesn't transform state, so node state is the same as graph state.
+     * 
+     * @protected
+     * @param {Partial<S>} nodeState - The partial node state
+     * @returns {Partial<S>} The same partial state
+     */
+    protected nodeStateToState(nodeState: Partial<S>): Partial<S> {
+        return nodeState;
+    }
+
+    /**
+     * Adds a tool to the tool set with its implementation function.
+     * When this tool is requested, a default node will wrap the implementation.
+     * 
+     * @overload
+     * @template TT - The Zod schema for the tool input
+     * @template TK - The output type returned by the tool function
+     * @template TA - The additional arguments type
+     * @param {ToolImplementation<TT, TK, TA>} tool - The tool implementation (has a func property)
+     * @returns {this} The ToolSet instance for method chaining
+     */
+    addTool<TT extends z.ZodObject, TK extends Record<string, unknown>, TA extends Record<string, any>>(
+        tool: ToolImplementation<TT, TK, TA>,
+    ): this;
+
+    /**
+     * Adds a tool to the tool set with a custom node or graph.
+     * When this tool is requested, the provided node/graph will be executed.
+     * 
+     * @overload
+     * @template TT - The Zod schema for the tool input
+     * @template TK - The output type returned by the tool function
+     * @template TA - The additional arguments type
+     * @param {ToolDefinition<TT>} tool - The tool definition (name, description, schema)
+     * @param {NodeLike<z.infer<TT>, TK> | Graph<TT, z.infer<TT>>} node - The node or graph to execute for this tool
+     * @returns {this} The ToolSet instance for method chaining
+     */
+    addTool<TT extends z.ZodObject, TK extends Record<string, unknown>, TA extends Record<string, any>>(
+        tool: ToolDefinition<TT>,
+        node: NodeLike<z.infer<TT>, TK> | Graph<TT, z.infer<TT>>,
+    ): this;
+
+    /**
+     * Adds a tool to the tool set.
+     * 
+     * If the tool is a ToolImplementation (has a func property), a default node wrapper is created.
+     * If the tool is a ToolDefinition, the provided node/graph is used.
+     * 
+     * @template TT - The Zod schema for the tool input
+     * @template TK - The output type returned by the tool function
+     * @template TA - The additional arguments type
+     * @param {ToolDefinition<TT> | ToolImplementation<TT, TK, TA>} tool - The tool definition or implementation
+     * @param {NodeLike<z.infer<TT>, TK> | Graph<TT, z.infer<TT>>} [node] - Optional node/graph (required if tool is ToolDefinition)
+     * @returns {this} The ToolSet instance for method chaining
+     * @throws {Error} If tool is ToolDefinition but node is not provided
+     */
+    addTool<TT extends z.ZodObject, TK extends Record<string, unknown>, TA extends Record<string, any>>(
+        tool: ToolDefinition<TT> | ToolImplementation<TT, TK, TA>,
+        node?: NodeLike<z.infer<TT>, TK> | Graph<TT, z.infer<TT>>,
+    ): this {
+
+        if (isToolImplementation(tool)) {
+            this.nodes[tool.name] = makeNode()
+        } else {
+            this.nodes[tool.name] = node;
+        }
+        return this;
+    }
+}
